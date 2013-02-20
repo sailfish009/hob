@@ -1,0 +1,2 @@
+(defpackage :hob
+  (:use :cl))
