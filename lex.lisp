@@ -6,7 +6,8 @@
   (pos 0)
   (line 1)
   (start-of-line 0)
-  (current-indentation '(0))
+  (indentation 0)
+  (indentation-stack '(0))
 
   tok-start-col
   tok-start-line
@@ -100,6 +101,8 @@
   (every (lambda (ch) (find ch *operator-chars*)) str))
 
 (defun read-token (in)
+  (when (tstream-tok-new-line in)
+    (setf (tstream-indentation in) (tstream-tok-start-col in)))
   (setf (tstream-tok-new-line in) (skip-non-tokens in)
         (tstream-tok-start-line in) (tstream-line in)
         (tstream-tok-start-col in) (- (tstream-pos in) (tstream-start-of-line in)))
