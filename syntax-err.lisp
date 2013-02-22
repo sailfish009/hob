@@ -30,8 +30,8 @@
   (error 'hob-parse-error :format-control control :format-arguments args
          :line line :col col :file *current-filename*))
 (defun hob-stream-error (in pos control &rest args)
-  (multiple-value-bind (line col) (find-pos (token-stream-file in) pos)
+  (multiple-value-bind (line col) (find-pos (tstream-file in) pos)
     (apply #'hob-parse-error line col control args)))
-(defun hob-token-error (token control &rest args)
-  (apply #'hob-parse-error (token-start-line token) (token-start-col token)
+(defun hob-token-error (in control &rest args)
+  (apply #'hob-parse-error (tstream-tok-start-line in) (tstream-tok-start-col in)
          control args))

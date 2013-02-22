@@ -1,33 +1,41 @@
 (in-package :hob)
 
-(defstruct token-stream
+(defstruct tstream
   filename
   file
   (pos 0)
   (line 1)
   (start-of-line 0)
-  cur)
+  (current-indentation '(0))
+
+  tok-start-col
+  tok-start-line
+  tok-end-col
+  tok-end-line
+  tok-type
+  tok-value
+  tok-new-line)
+
+(defun token-value (in) (tstream-tok-value in))
+(defun token-type (in) (tstream-tok-type in))
 
 (defun next-token (in)
-  (prog1 (token-stream-cur in)
-    (setf (token-stream-cur in) (read-token in))))
+  (prog1 (token-value in) (read-token in)))
 
-(defstruct token
-  type value new-line
-  start-line start-col
-  end-line end-col)
+(defun token-id (in)
+  (token-id* (token-type in) (token-value in)))
 
-(defun token-id (tok)
-  (ecase (token-type tok)
-    ((:op :punc) (string (token-value tok)))
-    (:string (token-value tok)) ;; FIXME escape
+(defun token-id* (type val)
+  (ecase type
+    ((:op :punc) (string val))
+    (:string (with-output-to-string (out) (write-escaped-string val out)))
     (:eof "EOF")
-    (:num (format nil "~d" (token-value tok)))
-    (:word (token-value tok))))
+    (:num (format nil "~d" val))
+    (:word val)))
 
-(defun tok= (tok type &optional val)
-  (and (eq (token-type tok) type)
-       (or (not val) (equal (token-value tok) val))))
+(defun tok= (in type &optional val)
+  (and (eq (token-type in) type)
+       (or (not val) (equal (token-value in) val))))
 
 (let ((decimal-number (cl-ppcre:create-scanner "^(-)?([\\d_]*)(?:\\.(\\d+))?(?:[eE](-?\\d+))?$"))
       (as-int (lambda (s) (if (length s) (parse-integer s) 0))))
@@ -53,18 +61,18 @@
 (defun is-arrow (word) (find word '("->" "=>") :test 'string=))
 
 (defun cur-ch (in)
-  (let ((file (token-stream-file in))
-        (pos (token-stream-pos in)))
+  (let ((file (tstream-file in))
+        (pos (tstream-pos in)))
     (when (< pos (length file)) (schar file pos))))
 
 (defun next (in)
-  (let ((file (token-stream-file in))
-        (pos (token-stream-pos in)))
+  (let ((file (tstream-file in))
+        (pos (tstream-pos in)))
     (when (< pos (length file))
       (when (eql (schar file pos) #\newline)
-        (incf (token-stream-line in))
-        (setf (token-stream-start-of-line in) (1+ pos)))
-      (setf (token-stream-pos in) (incf pos))
+        (incf (tstream-line in))
+        (setf (tstream-start-of-line in) (1+ pos)))
+      (setf (tstream-pos in) (incf pos))
       (when (< pos (length file)) (schar file pos)))))
 
 (defun skip-non-tokens (in)
@@ -76,7 +84,7 @@
      (unless (eql (cur-ch in) #\#) (return new-line))
        (next in)
        (if (eql (cur-ch in) #\()
-           (let ((last nil) (depth 1) (start (token-stream-pos in)))
+           (let ((last nil) (depth 1) (start (tstream-pos in)))
              (loop :for next := (cur-ch in) :do
                 (unless next (hob-stream-error in start "Unterminated block comment"))
                 (cond ((and (eql last #\#) (eql next #\()) (incf depth))
@@ -92,15 +100,15 @@
   (every (lambda (ch) (find ch *operator-chars*)) str))
 
 (defun read-token (in)
-  (let* ((new-line (skip-non-tokens in))
-         (start-line (token-stream-line in))
-         (start (token-stream-pos in))
-         (start-col (- start (token-stream-start-of-line in)))
-         (ch (cur-ch in)))
+  (setf (tstream-tok-new-line in) (skip-non-tokens in)
+        (tstream-tok-start-line in) (tstream-line in)
+        (tstream-tok-start-col in) (- (tstream-pos in) (tstream-start-of-line in)))
+  (let ((ch (cur-ch in))
+        (start (tstream-pos in)))
     (next in)
     (multiple-value-bind (type val)
         (cond
-          ((not ch) :eof)
+          ((not ch) (values :eof t))
           ((eql ch #\") (values :string (read-string in)))
           ((eql ch #\:)
            (cond ((eql (cur-ch in) #\:) (next in) (values :op "::"))
@@ -110,28 +118,28 @@
                   (num (and after (parse-number after))))
              (if num
                  (values :num num)
-                 (progn (setf (token-stream-pos in) (1+ start)) (values :punc #\.)))))
+                 (progn (setf (tstream-pos in) (1+ start)) (values :punc #\.)))))
           ((find ch *punctuation-chars*) (values :punc ch))
           ((is-word-char ch)
            (let ((word (read-word in ch)) num)
              (if (and (eql (cur-ch in) #\.) (cl-ppcre:scan *num-start* word))
-                 (let ((end (token-stream-pos in))
+                 (let ((end (tstream-pos in))
                        (whole (progn (next in) (concatenate 'string word "." (read-word in nil)))))
                    (setf num (parse-number whole))
-                   (unless num (setf (token-stream-pos in) end)))
+                   (unless num (setf (tstream-pos in) end)))
                  (setf num (parse-number word)))
              (cond (num (values :num num))
                    ((is-arrow word) (values :punc word))
                    ((is-operator word) (values :op word))
                    (t (values :word word)))))
           (t (hob-stream-error in start "unexpected character: \\~a" ch)))
-      (make-token :type type :value val :new-line new-line
-                  :start-line start-line :start-col start-col
-                  :end-line (token-stream-line in)
-                  :end-col (- (token-stream-pos in) (token-stream-start-of-line in))))))
+      (setf (tstream-tok-type in) type
+            (tstream-tok-value in) val
+            (tstream-tok-end-line in) (tstream-line in)
+            (tstream-tok-end-col in) (- (tstream-pos in) (tstream-start-of-line in))))))
 
 (defun read-string (in)
-  (let ((start (token-stream-pos in)))
+  (let ((start (tstream-pos in)))
     (with-output-to-string (out)
       (loop (let ((ch (next in)))
               (cond ((not ch) (hob-stream-error in start "Unterminated string constant"))
@@ -146,14 +154,14 @@
       (let ((digit (digit-char-p (or (next in) #\*) 16)))
         (if digit
             (incf num digit)
-            (hob-stream-error in (token-stream-pos in)
+            (hob-stream-error in (tstream-pos in)
                               "Invalid hex-character pattern in string."))))
     num))
 
 (defun read-escaped-char (in)
   (let ((ch (next in)))
     (case ch
-      (nil (hob-stream-error in (token-stream-pos in) "Invalid character escape"))
+      (nil (hob-stream-error in (tstream-pos in) "Invalid character escape"))
       (#\n #\newline) (#\r #\return) (#\t #\tab)
       (#\b #\backspace) (#\0 #\null)
       (#\x (code-char (read-hex-bytes in 2)))
