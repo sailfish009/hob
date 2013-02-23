@@ -2,7 +2,8 @@
   :depends-on (:cl-ppcre)
   :serial t
   :components ((:file "package")
+               (:file "syntax-err")
                (:file "expr")
                (:file "lex")
                (:file "parse")
-               (:file "syntax-err")))
+               (:file "expand")))

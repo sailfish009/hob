@@ -1,6 +1,6 @@
 (in-package :hob)
 
-(defstruct h-expr start end)
+(defstruct h-expr start end) ;; FIXME save proper position info
 
 (defstruct (h-lit (:include h-expr) (:constructor h-lit (val))) val)
 
@@ -26,6 +26,23 @@
 (defun h-word (name)
   (assert (stringp name))
   (mk-h-word name))
+
+(defun seq-len (s)
+  (if (h-seq-p s) (length (h-seq-vals s)) 1))
+(defun seq-list (s)
+  (if (h-seq-p s) (h-seq-vals s) (list s)))
+(defmacro mapseq ((var seq) &body body)
+  (let ((b (gensym)) (s (gensym)))
+    `(flet ((,b (,var) ,@body))
+       (let ((,s ,seq))
+         (if (h-seq-p ,s)
+             (h-seq (loop :for ,var :in (h-seq-vals ,s) :collect (,b ,var)))
+             (,b ,s))))))
+
+(defun is-const (w)
+  (char= (schar w 0) #\$))
+(defun is-variable (e)
+  (and (h-word-p e) (not (is-const (h-word-name e)))))
 
 (defmethod print-object ((e h-lit) out)
   (let ((v (h-lit-val e)))
@@ -82,6 +99,80 @@
           (write-escaped-string nm out))
         (write-string nm out))))
 
-(defun span (expr start end)
-  (setf (h-expr-start expr) start
-        (h-expr-end expr) end))
+(defun dissect-improper-list (lst)
+  (let (main end)
+    (loop :while lst :do
+       (unless (consp lst) (return (setf end lst)))
+       (push (car lst) main)
+       (setf lst (cdr lst)))
+    (values (nreverse main) end)))
+
+(defvar *bound*)
+
+(defun compile-match-pat (pat in)
+  (cond ((or (eq pat :_) (eq pat t)) t)
+        ((eq pat :word) `(h-word-p ,in))
+        ((eq pat :lit) `(h-lit-p ,in))
+        ((eq pat :seq) `(h-seq-p ,in))
+        ((eq pat :nil) `(and (h-seq-p ,in) (not (h-seq-vals ,in))))
+        ((stringp pat) `(and (h-word-p ,in) (equal (h-word-name ,in) ,pat)))
+        ((symbolp pat)
+         (push pat *bound*)
+         `(prog1 t (setf ,pat ,in)))
+        ((consp pat)
+         (case (car pat)
+           (:seq (push (second pat) *bound*)
+                 `(and (h-seq-p ,in)
+                       (prog1 t (setf ,(second pat) (if (h-seq-p ,in) (h-seq-vals ,in) (list ,in))))))
+           (:as (push (third pat) *bound*)
+                `(progn (setf ,(third pat) ,in)
+                        ,(compile-match-pat (second pat) in)))
+           (:word (push (second pat) *bound*)
+                  `(when (h-word-p ,in)
+                     (setf ,(second pat) (h-word-name ,in))
+                     t))
+           (t (let ((sym (gensym)))
+                `(and (h-app-p ,in)
+                      (let ((,sym (h-app-head ,in)))
+                        (declare (ignorable ,sym))
+                        ,(compile-match-pat (car pat) sym))
+                      (let ((,sym (h-app-args ,in)))
+                        (declare (ignorable ,sym))
+                        ,(compile-match-pats (cdr pat) sym)))))))
+        (t (error "Unrecognized pattern: ~a" pat))))
+
+(defun compile-match-pats (pats in)
+  (when (eq pats t) (return-from compile-match-pats t))
+  (multiple-value-bind (args rest) (dissect-improper-list pats)
+    `(and (,(if rest '>= '=) (length ,in) ,(length args))
+          ,@(loop :for i :from 0 :for arg :in args :for sym := (gensym) :collect
+               `(let ((,sym (nth ,i ,in)))
+                  (declare (ignorable ,sym))
+                  ,(compile-match-pat arg sym)))
+          ,@(when (and rest (not (eq rest :_)))
+                  (push rest *bound*)
+                  `((prog1 t (setf ,rest (nthcdr ,(length args) ,in))))))))
+
+(defmacro match (value &body clauses)
+  (let ((v (gensym)))
+    `(let ((,v ,value))
+       (declare (ignorable ,v))
+       (block match
+         ,@(loop :for (pat . body) :in clauses :collect
+                  (let* ((*bound* ())
+                         (test (compile-match-pat pat v)))
+                    `(let ,*bound*
+                       (when ,test (return-from match (progn ,@body))))))
+         (error "Non-exhaustive pattern")))))
+
+(defmacro match* (values &body clauses)
+  (let ((v (gensym)))
+    `(let ((,v ,values))
+       (declare (ignorable ,v))
+       (block match*
+         ,@(loop :for (pats . body) :in clauses :collect
+              (let* ((*bound* ())
+                     (test (compile-match-pats pats v)))
+                `(let ,*bound*
+                   (when ,test (return-from match* (progn ,@body))))))
+         (error "Non-exhaustive pattern")))))
