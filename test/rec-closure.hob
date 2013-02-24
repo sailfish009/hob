@@ -1,0 +1,10 @@
+# -> 110
+
+def outer: n yes no ->
+  def odd: 0 -> no
+           x -> even (x - 1)
+  def even: 0 -> yes
+            x -> odd (x - 1)
+  odd n
+
+(outer 4 1 10) + (outer 3 100 1000)

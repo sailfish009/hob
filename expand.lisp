@@ -17,7 +17,7 @@
                       (lambda (,e ,a)
                         (declare (ignorable ,e))
                         (match* ,a ,@clauses
-                           (t (error "Bad arguments to ~a" ,name)))))))
+                           (t (error "Bad arguments to ~a: ~a" ,name ,a)))))))
 
 (defmacro define-seq-macro (type name (&rest args) &body body)
   (let (env arg)
@@ -133,7 +133,7 @@
                          (("#def" (:word name) :_) (shadw :value name))
                          (:_))
                        expr)))
-      (loop :for expr :in exprs :collect (expand-value expr env)))))
+      (h-seq (loop :for expr :in exprs :collect (expand-value expr env))))))
 
 ;; Pattern expansion
 
@@ -151,7 +151,7 @@
     (:nil expr)
     (:lit expr)
     ;; FIXME pattern macros
-    ((head . args) (h-app head (loop :for arg :in args :collect (expand-pattern arg env))))
+    ((head . args) (h-app* head (loop :for arg :in args :collect (expand-pattern arg env))))
     (:_ (error "invalid pattern: ~a" expr))))
 
 (defun expand-patterns (expr env)
@@ -160,8 +160,8 @@
 
 ;; Tester
 
-(defun test-expand (str)
-  (expand-value (parse str) *macros*))
+(defun test-expand (str &optional name)
+  (expand-value (parse str name) *macros*))
 
 ;; Macros
 
@@ -172,7 +172,8 @@
   ((test then else) (h-app "#match" test
                            (h-seq (list (h-app "->" (h-word "$true") then)
                                         (h-app "->" (h-word "$false") else)))))
-  ((test then) (h-app "if" test then (h-nil))))
+  ((test then) (h-app "if" test then (h-nil)))
+  ((test then "else" else) (h-app "if" test then else)))
 
 (define-seq-macro :value "->" (cases)
   (block nil
@@ -181,11 +182,21 @@
        (unless (loop :for arg :in (seq-list args) :do
                   (unless (is-variable arg) (return t)))
          (return (h-app "#fn" args body))))
-      (t)))
-  (let* ((n-pats (test-cases cases))
-         (syms (loop :repeat n-pats :for i :from 0 :collect (format nil "#arg~a" i))))
-    (h-app "#fn" (h-seq (mapcar #'h-word syms))
-           (h-app "#match" (h-seq (mapcar #'h-word syms)) cases))))
+      (t))
+    (let* ((n-pats (test-cases cases))
+           (syms (loop :repeat n-pats :for i :from 0 :collect (format nil "#arg~a" i))))
+      (h-app "#fn" (h-seq (mapcar #'h-word syms))
+             (h-app "#match" (h-seq (mapcar #'h-word syms)) cases)))))
   
 (define-macro :value "match"
   ((args cases) (h-app "#match" args cases)))
+
+(define-macro :value "let"
+  ((bindings body)
+   (let (pats values)
+     (loop :for b :in (seq-list bindings) :do
+        (match b
+          (("=" pat val) (push pat pats) (push val values))
+          (t (error "malformed let binding"))))
+     (h-app "#match" (h-seq (nreverse values))
+            (h-app "->" (h-seq (nreverse pats)) body)))))

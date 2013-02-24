@@ -6,4 +6,5 @@
                (:file "expr")
                (:file "lex")
                (:file "parse")
-               (:file "expand")))
+               (:file "expand")
+               (:file "test")))

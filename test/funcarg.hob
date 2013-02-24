@@ -1,0 +1,4 @@
+# -> 6
+def call5: f -> f 5
+def succ: x -> x + 1
+call5 succ

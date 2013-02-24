@@ -59,7 +59,7 @@
 (defparameter *punctuation-chars* "{}()[];,.")
 (defparameter *operator-chars* "~+-=/%$&|*^@<>!?")
 (defun is-word-char (ch) (or (alphanumericp ch) (find ch "'_") (find ch *operator-chars*)))
-(defun is-arrow (word) (find word '("->" "=>") :test 'string=))
+(defun is-arrow (word) (find word '("->" "=>" "=") :test 'string=))
 
 (defun cur-ch (in)
   (let ((file (tstream-file in))
@@ -144,7 +144,8 @@
 (defun read-string (in)
   (let ((start (tstream-pos in)))
     (with-output-to-string (out)
-      (loop (let ((ch (next in)))
+      (loop (let ((ch (cur-ch in)))
+              (next in)
               (cond ((not ch) (hob-stream-error in start "Unterminated string constant"))
                     ((eql ch #\\) (write-char (read-escaped-char in) out))
                     ((eql ch #\") (return))

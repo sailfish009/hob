@@ -1,0 +1,10 @@
+# -> 9
+
+def id: x -> x
+
+def idd: y ->
+  let (q = 1 + 1):
+    id q
+    id y
+
+id (3 * 3)

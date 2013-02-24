@@ -1,0 +1,9 @@
+# -> 2
+
+def true: a b -> a
+def false: a b -> b
+def if: c then else -> c then else
+
+def check: x -> true
+
+if (check 10) (if false 1 2) 3

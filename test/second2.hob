@@ -1,0 +1,8 @@
+# -> 4
+
+type List: a -> cons a (List a)
+                $nil
+
+def second2: (cons _ (cons x _)) -> x + x
+
+second2 (cons 0 (cons 2 $nil))

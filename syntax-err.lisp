@@ -4,8 +4,8 @@
 (defparameter *current-file* nil)
 
 (defun find-pos (str pos)
-  (loop :for off := 0 :for l :from 1 :do
-     (let ((next (find #\newline str :start off)))
+  (loop :with off := 0 :for l :from 1 :do
+     (let ((next (position #\newline str :start off)))
        (when (or (not next) (> next pos))
          (return (values l (- pos off))))
        (setf off (1+ next)))))

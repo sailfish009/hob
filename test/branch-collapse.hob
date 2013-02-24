@@ -1,0 +1,9 @@
+# -> 5003
+
+type List: cons Int List; $nil
+
+def third: 1 (cons _ (cons 2 (cons x _))) -> x
+           1 (cons _ (cons 1 (cons x _))) -> 1000 + x
+           _ (cons _ (cons _ (cons x _))) -> 5000 + x
+
+third 2 (cons 1 (cons 2 (cons 3 (cons 4 $nil))))

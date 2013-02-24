@@ -1,0 +1,15 @@
+# -> 6
+
+type List: a -> cons a (List a); $nil
+
+def length1:
+  (cons _ y) -> 1 + (length1 y)
+  $nil -> 0
+
+def length2:
+  (cons _ y) acc -> length2 y (1 + acc)
+  $nil acc -> acc
+
+def list: cons 1 (cons 2 (cons 3 $nil))
+
+(length1 list) + (length2 list 0)

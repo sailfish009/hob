@@ -1,0 +1,10 @@
+# -> 116
+
+def square: x -> x * x
+
+def addsq: y ->
+  def y2: square y
+  def x2: square 10
+  y2 + x2
+
+addsq 4
