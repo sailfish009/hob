@@ -25,10 +25,12 @@
       (mk-h-seq vals)
       (car vals)))
 
+(defvar *expanding* nil)
+
 (defstruct (h-app (:include h-expr) (:constructor mk-h-app (head args))) head args)
 (defun h-app* (head args)
   (if (stringp head)
-      (setf head (h-word head))
+      (setf head (h-word head (and *expanding* (expr-start-pos *expanding*))))
       (assert (h-expr-p head)))
   (dolist (arg args) (assert (h-expr-p arg)))
   (mk-h-app head args))

@@ -16,8 +16,9 @@
     `(do-define-macro ,type nil ,name
                       (lambda (,e ,a)
                         (declare (ignorable ,e))
-                        (match* ,a ,@clauses
-                           (t (syntax-error ,a "Bad arguments to ~a" ,name)))))))
+                        (let ((*expanding* (h-app-head ,a)))
+                          (match* (h-app-args ,a) ,@clauses
+                            (t (syntax-error (h-app-args ,a) "Bad arguments to ~a" ,name))))))))
 
 (defmacro define-seq-macro (type name (&rest args) &body body)
   (let (env arg)
@@ -66,9 +67,9 @@
        (syntax-error values "amount of input values doesn't match amount of patterns"))
      (let ((cases (mapseq (cs cases)
                     (match cs
-                      (("->" pats body)
+                      (((:as "->" h) pats body)
                        (multiple-value-bind (pats bound) (expand-patterns pats env)
-                         (h-app "->" pats (expand-value body (extend env :value (loop :for b :in bound :collect (cons b nil)))))))))))
+                         (h-app h pats (expand-value body (extend env :value (loop :for b :in bound :collect (cons b nil)))))))))))
        (h-app "#match" values cases)))))
 
 (define-macro :value ("#fn" env)
@@ -88,7 +89,7 @@
     ((head . rest)
      (let ((spec-form (find-special-form :value head)))
        (if spec-form
-           (funcall spec-form env rest)
+           (funcall spec-form env expr)
            (h-app* (expand-value head env) (loop :for arg :in rest :collect (expand-value arg env))))))
     ((:seq elts)
      (let ((can-expand (match (car elts)
@@ -104,10 +105,10 @@
 (defun expand-value-outer (expr env)
   (loop :do
      (match expr
-       (((:word name) . rest)
+       (((:word name) . :_)
         (let ((macro (lookup :value name env)))
           (if macro
-              (setf expr (funcall (cdr macro) env (if (car macro) expr rest)))
+              (setf expr (funcall (cdr macro) env expr))
               (return expr))))
        (t (return expr)))))
 
@@ -190,16 +191,18 @@
 
 (define-seq-macro :value "->" (cases)
   (block nil
-    (match cases
-      (("->" args body)
-       (unless (loop :for arg :in (seq-list args) :do
-                  (unless (is-variable arg) (return t)))
-         (return (h-app "#fn" args body))))
-      (t))
-    (let* ((n-pats (test-cases cases))
-           (syms (loop :repeat n-pats :for i :from 0 :collect (format nil "#arg~a" i))))
-      (h-app "#fn" (h-seq (mapcar #'h-word syms))
-             (h-app "#match" (h-seq (mapcar #'h-word syms)) cases)))))
+    (let (arr-pos)
+      (match cases
+        (((:as "->" arr) args body)
+         (setf arr-pos (expr-start-pos arr))
+         (unless (loop :for arg :in (seq-list args) :do
+                    (unless (is-variable arg) (return t)))
+           (return (h-app (h-word "#fn" arr-pos) args body))))
+        ((:seq exprs) (setf arr-pos (expr-start-pos (h-app-head (car exprs))))))
+      (let* ((n-pats (test-cases cases))
+             (syms (loop :repeat n-pats :for i :from 0 :collect (format nil "#arg~a" i))))
+        (h-app (h-word "#fn" arr-pos) (h-seq (mapcar #'h-word syms))
+               (h-app (h-word "#match" arr-pos) (h-seq (mapcar #'h-word syms)) cases))))))
   
 (define-macro :value "match"
   ((args cases) (h-app "#match" args cases)))
