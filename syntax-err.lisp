@@ -1,8 +1,5 @@
 (in-package :hob)
 
-(defparameter *current-filename* nil)
-(defparameter *current-file* nil)
-
 (defun find-pos (str pos)
   (loop :with off := 0 :for l :from 1 :do
      (let ((next (position #\newline str :start off)))
@@ -18,20 +15,30 @@
 (defmethod print-object ((err hob-program-error) stream)
   (call-next-method)
   (unless (zerop (hob-error-line err))
-    (let ((f (hob-error-file err)))
-      (format stream " (~@[~a ~]line ~a, char ~a)" (and f (file-namestring f))
-              (hob-error-line err) (hob-error-col err)))))
+    (when (hob-error-line err)
+      (let ((f (hob-error-file err)))
+        (format stream " (~@[~a ~]line ~a, char ~a)" (and f (file-namestring f))
+                (hob-error-line err) (hob-error-col err))))))
 
 (define-condition hob-syntax-error (hob-program-error) ())
 
 (define-condition hob-parse-error (hob-syntax-error) ())
 
-(defun hob-parse-error (line col control &rest args)
+(defun hob-parse-error (line col file control &rest args)
   (error 'hob-parse-error :format-control control :format-arguments args
-         :line line :col col :file *current-filename*))
+         :line line :col col :file file))
+
 (defun hob-stream-error (in pos control &rest args)
   (multiple-value-bind (line col) (find-pos (tstream-file in) pos)
-    (apply #'hob-parse-error line col control args)))
+    (apply #'hob-parse-error line col (tstream-filename in) control args)))
+
 (defun hob-token-error (in control &rest args)
   (apply #'hob-parse-error (tstream-tok-start-line in) (tstream-tok-start-col in)
-         control args))
+         (tstream-filename in) control args))
+
+(defun syntax-error (expr control &rest args)
+  (let ((pos (expr-start-pos expr)))
+    (if pos
+        (apply #'hob-parse-error (pos-start-line pos) (pos-start-col pos)
+               (pos-file pos) control args)
+        (apply #'hob-parse-error nil nil nil control args))))

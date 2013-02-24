@@ -1,16 +1,22 @@
 (in-package :hob)
 
-(defstruct h-expr start end) ;; FIXME save proper position info
+(defstruct pos file start-line start-col end-line end-col)
 
-(defstruct (h-lit (:include h-expr) (:constructor h-lit (val))) val)
+(defun pos-less (a b)
+  (let ((linea (pos-start-line a)) (lineb (pos-start-line b)))
+    (or (< linea lineb) (and (= linea lineb) (< (pos-start-col a) (pos-start-col b))))))
 
-(defstruct (h-seq (:include h-expr) (:constructor mk-h-seq (vals))) vals)
+(defstruct h-expr pos) ;; FIXME save proper position info
+
+(defstruct (h-lit (:include h-expr) (:constructor h-lit (val &optional pos))) val)
+
+(defstruct (h-seq (:include h-expr) (:constructor mk-h-seq (vals &optional pos))) vals)
 (defun h-seq (vals)
   (dolist (val vals) (assert (h-expr-p val)))
   (if (or (not vals) (cdr vals))
       (mk-h-seq vals)
       (car vals)))
-(defun h-nil () (mk-h-seq ()))
+(defun h-nil (&optional pos) (mk-h-seq () pos))
 
 (defstruct (h-app (:include h-expr) (:constructor mk-h-app (head args))) head args)
 (defun h-app* (head args)
@@ -22,10 +28,41 @@
 (defun h-app (head &rest args)
   (h-app* head args))
 
-(defstruct (h-word (:include h-expr) (:constructor mk-h-word (name))) name)
-(defun h-word (name)
+(defstruct (h-word (:include h-expr) (:constructor mk-h-word (name pos))) name)
+(defun h-word (name &optional pos)
   (assert (stringp name))
-  (mk-h-word name))
+  (mk-h-word name pos))
+
+(defun expr-start-pos (expr)
+  (or (h-expr-pos expr)
+      (typecase expr
+        (h-seq (let ((val0 (car (h-seq-vals expr))))
+                 (and val0 (expr-start-pos val0))))
+        (h-app (let ((head-pos (expr-pos (h-app-head expr)))
+                     (arg0-pos (and (h-app-args expr) (expr-start-pos (car (h-app-args expr))))))
+                 (if (and arg0-pos (or (not head-pos) (pos-less arg0-pos head-pos)))
+                     arg0-pos
+                     head-pos))))))
+
+(defun expr-end-pos (expr)
+  (or (h-expr-pos expr)
+      (typecase expr
+        (h-seq (let ((valn (car (last (h-seq-vals expr)))))
+                 (and valn (expr-end-pos valn))))
+        (h-app (if (h-app-args expr)
+                   (expr-end-pos (car (last (h-app-args expr))))
+                   (expr-end-pos (h-app-head expr)))))))
+
+(defun expr-pos (expr)
+  (let ((start (expr-start-pos expr))
+        (end (expr-end-pos expr)))
+    (cond ((or (not end) (eq start end)) start)
+          ((not start) end)
+          (t (make-pos :file (pos-file start)
+                       :start-line (pos-start-line start)
+                       :start-col (pos-start-col start)
+                       :end-line (pos-end-line end)
+                       :end-col (pos-end-col end))))))
 
 (defun seq-len (s)
   (if (h-seq-p s) (length (h-seq-vals s)) 1))
@@ -107,7 +144,7 @@
        (setf lst (cdr lst)))
     (values (nreverse main) end)))
 
-(defvar *bound*)
+(defvar *pat-bound*)
 
 (defun compile-match-pat (pat in)
   (cond ((or (eq pat :_) (eq pat t)) t)
@@ -117,17 +154,17 @@
         ((eq pat :nil) `(and (h-seq-p ,in) (not (h-seq-vals ,in))))
         ((stringp pat) `(and (h-word-p ,in) (equal (h-word-name ,in) ,pat)))
         ((symbolp pat)
-         (push pat *bound*)
+         (push pat *pat-bound*)
          `(prog1 t (setf ,pat ,in)))
         ((consp pat)
          (case (car pat)
-           (:seq (push (second pat) *bound*)
+           (:seq (push (second pat) *pat-bound*)
                  `(and (h-seq-p ,in)
                        (prog1 t (setf ,(second pat) (if (h-seq-p ,in) (h-seq-vals ,in) (list ,in))))))
-           (:as (push (third pat) *bound*)
+           (:as (push (third pat) *pat-bound*)
                 `(progn (setf ,(third pat) ,in)
                         ,(compile-match-pat (second pat) in)))
-           (:word (push (second pat) *bound*)
+           (:word (push (second pat) *pat-bound*)
                   `(when (h-word-p ,in)
                      (setf ,(second pat) (h-word-name ,in))
                      t))
@@ -150,7 +187,7 @@
                   (declare (ignorable ,sym))
                   ,(compile-match-pat arg sym)))
           ,@(when (and rest (not (eq rest :_)))
-                  (push rest *bound*)
+                  (push rest *pat-bound*)
                   `((prog1 t (setf ,rest (nthcdr ,(length args) ,in))))))))
 
 (defmacro match (value &body clauses)
@@ -159,9 +196,9 @@
        (declare (ignorable ,v))
        (block match
          ,@(loop :for (pat . body) :in clauses :collect
-                  (let* ((*bound* ())
+                  (let* ((*pat-bound* ())
                          (test (compile-match-pat pat v)))
-                    `(let ,*bound*
+                    `(let ,*pat-bound*
                        (when ,test (return-from match (progn ,@body))))))
          (error "Non-exhaustive pattern")))))
 
@@ -171,8 +208,8 @@
        (declare (ignorable ,v))
        (block match*
          ,@(loop :for (pats . body) :in clauses :collect
-              (let* ((*bound* ())
+              (let* ((*pat-bound* ())
                      (test (compile-match-pats pats v)))
-                `(let ,*bound*
+                `(let ,*pat-bound*
                    (when ,test (return-from match* (progn ,@body))))))
          (error "Non-exhaustive pattern")))))

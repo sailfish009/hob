@@ -17,7 +17,7 @@
                       (lambda (,e ,a)
                         (declare (ignorable ,e))
                         (match* ,a ,@clauses
-                           (t (error "Bad arguments to ~a: ~a" ,name ,a)))))))
+                           (t (syntax-error ,a "Bad arguments to ~a" ,name)))))))
 
 (defmacro define-seq-macro (type name (&rest args) &body body)
   (let (env arg)
@@ -50,9 +50,9 @@
          (("->" args :_)
           (if n-args
               (unless (= (seq-len args) n-args)
-                (error "inconsistent argument count"))
+                (syntax-error args "inconsistent argument count"))
               (setf n-args (seq-len args))))
-         (t (error "expected arrow application"))))
+         (t (syntax-error case "expected arrow application"))))
     n-args))
 
 (define-macro :value ("#def" env)
@@ -63,7 +63,7 @@
    (let ((n-cases (test-cases cases))
          (values (mapseq (value values) (expand-value value env))))
      (unless (= n-cases (seq-len values))
-       (error "amount of input values doesn't match amount of patterns"))
+       (syntax-error values "amount of input values doesn't match amount of patterns"))
      (let ((cases (mapseq (cs cases)
                     (match cs
                       (("->" pats body)
@@ -76,7 +76,7 @@
    (let ((shadow ()))
      (loop :for arg :in (seq-list args) :do
         (unless (is-variable arg)
-          (error "invalid binding in argument list"))
+          (syntax-error arg "invalid binding in argument list"))
         (push (cons (h-word-name arg) nil) shadow))
      (h-app "#fn" args (expand-value body (extend env :value shadow))))))
 
@@ -139,20 +139,21 @@
 
 (defvar *bound*)
 
-(defun reg-binding (name &optional (check t))
-  (unless (string= name "_")
-    (when (and check (member name *bound* :test #'string=))
-      (error "binding ~a multiple times" name))
-    (push name *bound*)))
+(defun reg-binding (expr &optional (check t))
+  (let ((name (h-word-name expr)))
+    (unless (string= name "_")
+      (when (and check (member name *bound* :test #'string=))
+        (syntax-error expr "binding ~a multiple times" name))
+      (push name *bound*))))
 
 (defun expand-pattern* (expr env)
   (match expr
-    (:word (when (is-variable expr) (reg-binding (h-word-name expr))) expr)
+    (:word (when (is-variable expr) (reg-binding expr)) expr)
     (:nil expr)
     (:lit expr)
     ;; FIXME pattern macros
     ((head . args) (h-app* head (loop :for arg :in args :collect (expand-pattern* arg env))))
-    (:_ (error "invalid pattern: ~a" expr))))
+    (:_ (syntax-error expr "invalid pattern"))))
 
 (defun expand-pattern (expr env)
   (let ((*bound* ()))
@@ -166,7 +167,7 @@
   (let ((*bound* ()))
     (labels ((iter (pat)
                (match pat
-                 (:word (when (is-variable pat) (reg-binding (h-word-name pat) nil)))
+                 (:word (when (is-variable pat) (reg-binding pat nil)))
                  ((:_ . args) (dolist (arg args) (iter arg)))
                  (:_))))
       (iter pat)
@@ -211,6 +212,6 @@
      (loop :for b :in (seq-list bindings) :do
         (match b
           (("=" pat val) (push pat pats) (push val values))
-          (t (error "malformed let binding"))))
+          (t (syntax-error b "malformed let binding"))))
      (h-app "#match" (h-seq (nreverse values))
             (h-app "->" (h-seq (nreverse pats)) body)))))
