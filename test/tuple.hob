@@ -7,5 +7,6 @@ def car: (cons a _) -> a
 
 def x: cons 1 $nil, 2, $nil
 
-let ((y, z, a) = x):
-  z + (car y) + (fst (1, 2))
+def (y, z, a): x
+
+z + (car y) + (fst (1, 2))

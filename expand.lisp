@@ -56,7 +56,7 @@
     n-args))
 
 (define-macro :value ("#def" env)
-  (((:as :word name) value) (h-app "#def" name (expand-value value env))))
+  ((pat value) (h-app "#def" pat (expand-value value env))))
 
 (define-macro :value ("#match" env)
   ((values cases)
@@ -130,7 +130,7 @@
                                (("#variant" (:word name) . :_)
                                 (shadw :value name)
                                 (shadw :pattern name)))))
-                         (("#def" (:word name) :_) (shadw :value name))
+                         (("#def" pat :_) (loop :for var :in (pattern-vars pat) :do (shadw :value var)))
                          (:_))
                        expr)))
       (h-seq (loop :for expr :in exprs :collect (expand-value expr env))))))
@@ -139,24 +139,38 @@
 
 (defvar *bound*)
 
-(defun reg-binding (name)
+(defun reg-binding (name &optional (check t))
   (unless (string= name "_")
-    (when (member name *bound* :test #'string=)
+    (when (and check (member name *bound* :test #'string=))
       (error "binding ~a multiple times" name))
     (push name *bound*)))
 
-(defun expand-pattern (expr env)
+(defun expand-pattern* (expr env)
   (match expr
     (:word (when (is-variable expr) (reg-binding (h-word-name expr))) expr)
     (:nil expr)
     (:lit expr)
     ;; FIXME pattern macros
-    ((head . args) (h-app* head (loop :for arg :in args :collect (expand-pattern arg env))))
+    ((head . args) (h-app* head (loop :for arg :in args :collect (expand-pattern* arg env))))
     (:_ (error "invalid pattern: ~a" expr))))
+
+(defun expand-pattern (expr env)
+  (let ((*bound* ()))
+    (values (expand-pattern* expr env) *bound*)))
 
 (defun expand-patterns (expr env)
   (let ((*bound* ()))
-    (values (mapseq (pat expr) (expand-pattern pat env)) *bound*)))
+    (values (mapseq (pat expr) (expand-pattern* pat env)) *bound*)))
+
+(defun pattern-vars (pat)
+  (let ((*bound* ()))
+    (labels ((iter (pat)
+               (match pat
+                 (:word (when (is-variable pat) (reg-binding (h-word-name pat) nil)))
+                 ((:_ . args) (dolist (arg args) (iter arg)))
+                 (:_))))
+      (iter pat)
+      *bound*)))
 
 ;; Tester
 
@@ -165,8 +179,8 @@
 
 ;; Macros
 
-(define-macro :value "def"
-  (((:as :word name) value) (h-app "#def" name value)))
+(define-macro :value ("def" env)
+  ((pat value) (h-app "#def" (expand-pattern pat env) value)))
 
 (define-macro :value "if"
   ((test then else) (h-app "#match" test
