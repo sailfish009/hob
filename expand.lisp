@@ -90,7 +90,6 @@
        (if spec-form
            (funcall spec-form env rest)
            (h-app* (expand-value head env) (loop :for arg :in rest :collect (expand-value arg env))))))
-    (:nil expr)
     ((:seq elts)
      (let ((can-expand (match (car elts)
                          (((:word name) . :_)
@@ -149,7 +148,6 @@
 (defun expand-pattern* (expr env)
   (match expr
     (:word (when (is-variable expr) (reg-binding expr)) expr)
-    (:nil expr)
     (:lit expr)
     ;; FIXME pattern macros
     ((head . args) (h-app* head (loop :for arg :in args :collect (expand-pattern* arg env))))
@@ -187,7 +185,7 @@
   ((test then else) (h-app "#match" test
                            (h-seq (list (h-app "->" (h-word "$true") then)
                                         (h-app "->" (h-word "$false") else)))))
-  ((test then) (h-app "if" test then (h-nil)))
+  ((test then) (h-app "if" test then (h-word "()" (expr-end-pos then))))
   ((test then "else" else) (h-app "if" test then else)))
 
 (define-seq-macro :value "->" (cases)

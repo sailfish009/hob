@@ -6,17 +6,24 @@
   (let ((linea (pos-start-line a)) (lineb (pos-start-line b)))
     (or (< linea lineb) (and (= linea lineb) (< (pos-start-col a) (pos-start-col b))))))
 
+(defun span-pos (start end)
+  (make-pos :file (pos-file start)
+            :start-line (pos-start-line start)
+            :start-col (pos-start-col start)
+            :end-line (pos-end-line end)
+            :end-col (pos-end-col end)))
+
 (defstruct h-expr pos) ;; FIXME save proper position info
 
 (defstruct (h-lit (:include h-expr) (:constructor h-lit (val &optional pos))) val)
 
 (defstruct (h-seq (:include h-expr) (:constructor mk-h-seq (vals &optional pos))) vals)
 (defun h-seq (vals)
+  (assert vals)
   (dolist (val vals) (assert (h-expr-p val)))
   (if (or (not vals) (cdr vals))
       (mk-h-seq vals)
       (car vals)))
-(defun h-nil (&optional pos) (mk-h-seq () pos))
 
 (defstruct (h-app (:include h-expr) (:constructor mk-h-app (head args))) head args)
 (defun h-app* (head args)
@@ -58,11 +65,7 @@
         (end (expr-end-pos expr)))
     (cond ((or (not end) (eq start end)) start)
           ((not start) end)
-          (t (make-pos :file (pos-file start)
-                       :start-line (pos-start-line start)
-                       :start-col (pos-start-col start)
-                       :end-line (pos-end-line end)
-                       :end-col (pos-end-col end))))))
+          (t (span-pos start end)))))
 
 (defun seq-len (s)
   (if (h-seq-p s) (length (h-seq-vals s)) 1))
@@ -77,7 +80,8 @@
              (,b ,s))))))
 
 (defun is-const (w)
-  (char= (schar w 0) #\$))
+  (or (char= (schar w 0) #\$)
+      (equal w "()"))) ;; FIXME other non-alphabetics?
 (defun is-variable (e)
   (and (h-word-p e) (not (is-const (h-word-name e)))))
 
@@ -109,15 +113,13 @@
                 (t (write-char ch out)))))))
 
 (defmethod print-object ((e h-seq) *standard-output*)
-  (if (h-seq-vals e)
-      (pprint-logical-block (nil nil :prefix "[" :suffix "]")
-        (let ((first t))
-          (dolist (elt (h-seq-vals e))
-            (if first
-                (setf first nil)
-                (progn (write-char #\Space) (pprint-newline :linear)))
-            (write elt))))
-      (write-string "()")))
+  (pprint-logical-block (nil nil :prefix "[" :suffix "]")
+    (let ((first t))
+      (dolist (elt (h-seq-vals e))
+        (if first
+            (setf first nil)
+            (progn (write-char #\Space) (pprint-newline :linear)))
+        (write elt)))))
 
 (defmethod print-object ((e h-app) *standard-output*)
   (pprint-logical-block (nil nil :prefix "(" :suffix ")")
@@ -130,7 +132,7 @@
 (defmethod print-object ((e h-word) out)
   (let ((nm (h-word-name e)))
     (if (and (not (every #'is-word-char nm))
-             (not (equal nm "::")))
+             (not (member nm '("::" "()") :test #'string=)))
         (progn
           (write-char #\\ out)
           (write-escaped-string nm out))
@@ -151,7 +153,6 @@
         ((eq pat :word) `(h-word-p ,in))
         ((eq pat :lit) `(h-lit-p ,in))
         ((eq pat :seq) `(h-seq-p ,in))
-        ((eq pat :nil) `(and (h-seq-p ,in) (not (h-seq-vals ,in))))
         ((stringp pat) `(and (h-word-p ,in) (equal (h-word-name ,in) ,pat)))
         ((symbolp pat)
          (push pat *pat-bound*)
