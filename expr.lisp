@@ -80,6 +80,14 @@
          (if (h-seq-p ,s)
              (h-seq (loop :for ,var :in (h-seq-vals ,s) :collect (,b ,var)))
              (,b ,s))))))
+(defmacro doseq ((pat seq) &body body)
+  (let ((b (gensym)) (s (gensym)) (v (gensym)))
+    `(block nil
+       (flet ((,b (,v) (match ,v (,pat ,@body))))
+         (let ((,s ,seq))
+           (if (h-seq-p ,s)
+               (loop :for ,v :in (h-seq-vals ,s) :do (,b ,v))
+               (,b ,s)))))))
 
 (defun is-const (w)
   (or (char= (schar w 0) #\$)
@@ -194,6 +202,8 @@
                   `((prog1 t (setf ,rest (nthcdr ,(length args) ,in))))))))
 
 (defmacro match (value &body clauses)
+  (when (and (not (cdr clauses)) (symbolp (caar clauses)))
+    (return-from match `(let ((,(caar clauses) ,value)) ,@(cdar clauses))))
   (let ((v (gensym)))
     `(let ((,v ,value))
        (declare (ignorable ,v))

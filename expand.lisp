@@ -46,14 +46,14 @@
 
 (defun test-cases (cases)
   (let (n-args)
-    (loop :for case :in (seq-list cases) :do
-       (match case
-         (("->" args :_)
-          (if n-args
-              (unless (= (seq-len args) n-args)
-                (syntax-error args "inconsistent argument count"))
-              (setf n-args (seq-len args))))
-         (t (syntax-error case "expected arrow application"))))
+    (doseq (case cases)
+      (match case
+        (("->" args :_)
+         (if n-args
+             (unless (= (seq-len args) n-args)
+               (syntax-error args "inconsistent argument count"))
+             (setf n-args (seq-len args))))
+        (t (syntax-error case "expected arrow application"))))
     n-args))
 
 (define-macro :value ("#def" env)
@@ -75,10 +75,10 @@
 (define-macro :value ("#fn" env)
   ((args body)
    (let ((shadow ()))
-     (loop :for arg :in (seq-list args) :do
-        (unless (is-variable arg)
-          (syntax-error arg "invalid binding in argument list"))
-        (push (cons (h-word-name arg) nil) shadow))
+     (doseq (arg args)
+       (unless (is-variable arg)
+         (syntax-error arg "invalid binding in argument list"))
+       (push (cons (h-word-name arg) nil) shadow))
      (h-app "#fn" args (expand-value body (extend env :value shadow))))))
 
 ;; Value expansion
@@ -169,7 +169,9 @@
                  (:word (when (is-variable pat) (reg-binding pat nil)))
                  ((:_ . args) (dolist (arg args) (iter arg)))
                  (:_))))
-      (iter pat)
+      (if (h-seq-p pat)
+          (doseq (p pat) (iter p))
+          (iter pat))
       *bound*)))
 
 ;; Tester
@@ -195,8 +197,7 @@
       (match cases
         (((:as "->" arr) args body)
          (setf arr-pos (expr-start-pos arr))
-         (unless (loop :for arg :in (seq-list args) :do
-                    (unless (is-variable arg) (return t)))
+         (unless (doseq (arg args) (unless (is-variable arg) (return t)))
            (return (h-app (h-word "#fn" arr-pos) args body))))
         ((:seq exprs) (setf arr-pos (expr-start-pos (h-app-head (car exprs))))))
       (let* ((n-pats (test-cases cases))
@@ -210,9 +211,9 @@
 (define-macro :value "let"
   ((bindings body)
    (let (pats values)
-     (loop :for b :in (seq-list bindings) :do
-        (match b
-          (("=" pat val) (push pat pats) (push val values))
-          (t (syntax-error b "malformed let binding"))))
+     (doseq (b bindings)
+       (match b
+         (("=" pat val) (push pat pats) (push val values))
+         (t (syntax-error b "malformed let binding"))))
      (h-app "#match" (h-seq (nreverse values))
             (h-app "->" (h-seq (nreverse pats)) body)))))
