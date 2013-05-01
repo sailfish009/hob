@@ -37,7 +37,7 @@
 (defun h-app (head &rest args)
   (h-app* head args))
 
-(defstruct (h-word (:include h-expr) (:constructor mk-h-word (name pos))) name)
+(defstruct (h-word (:include h-expr) (:constructor mk-h-word (name pos))) name env)
 (defun h-word (name &optional pos)
   (assert (stringp name))
   (mk-h-word name pos))

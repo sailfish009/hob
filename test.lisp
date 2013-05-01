@@ -12,7 +12,7 @@
 (defun run-test (file)
   (when (stringp file)
     (setf file (merge-pathnames (concatenate 'string "test/" file ".hob") *path*)))
-  (with-open-file (in file)
+  (with-open-file (in file :element-type '(unsigned-byte 8))
     (test-expand in (pathname-name file)))
   (return-spec file))
 
