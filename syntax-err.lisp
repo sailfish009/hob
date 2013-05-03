@@ -36,9 +36,12 @@
   (apply #'hob-parse-error (tstream-tok-start-line in) (tstream-tok-start-col in)
          (tstream-filename in) control args))
 
-(defun syntax-error (expr control &rest args)
-  (let ((pos (expr-start-pos expr)))
-    (if pos
-        (apply #'hob-parse-error (pos-start-line pos) (pos-start-col pos)
-               (pos-file pos) control args)
-        (apply #'hob-parse-error nil nil nil control args))))
+(defmacro define-raise-function (name &optional condition)
+  `(defun ,name (expr control &rest args)
+     (let ((pos (expr-start-pos expr)))
+       (multiple-value-bind (line col file)
+           (and pos (values (pos-start-line pos) (pos-start-col pos) (pos-file pos)))
+         (error ',(or condition name) :format-control control :format-arguments args
+                :line line :col col :file file)))))
+
+(define-raise-function syntax-error hob-parse-error)

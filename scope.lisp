@@ -2,63 +2,41 @@
 
 (defstruct (scope (:constructor scope (prev)))
   prev
-  pat
-  value
-  type)
+  bindings)
 
-(defstruct (binding (:constructor binding (name val &optional kind)))
+(defstruct (binding (:constructor binding (name ns)))
   name
-  kind
-  val)
+  ns
+  fields)
 
-(defun vlookup* (env name kind)
+(defun find-binding (scope ns name)
+  (dolist (b (scope-bindings scope))
+    (when (and (eq (binding-ns b) ns) (string= (binding-name b) name))
+      (return b))))
+
+(defun get-binding (scope ns name)
+  (or (find-binding scope ns name)
+      (let ((b (binding name ns)))
+        (push b (scope-bindings scope))
+        b)))
+
+(defun lookup-binding (env ns name)
   (loop :for cur := env :then (scope-prev cur) :while cur :do
-     (loop :for b :in (scope-value cur) :do
-        (when (equal (binding-name b) name)
-          (return-from vlookup* (and (eq kind (binding-kind b)) b))))))
+     (let ((found (find-binding cur ns name)))
+       (when found (return found)))))
 
-(defun vlookup (env name kind)
-  (let ((found (vlookup* env name kind)))
-    (if found
-        (binding-val found)
-        (error "Undefined variable ~a" name))))
+(defun binding-field (b kind)
+  (cdr (assoc kind (binding-fields b))))
 
-(defun vbind (env name kind val)
-  (let ((b (binding name val kind)))
-    (push b (scope-value env))
-    b))
+(defun lookup (env ns name kind)
+  (let ((b (lookup-binding env ns name)))
+    (and b (binding-field b kind))))
 
-(defun tlookup* (env name kind)
-  (loop :for cur := env :then (scope-prev cur) :while cur :do
-     (loop :for b :in (scope-type cur) :do
-        (when (and (equal (binding-name b) name) (eq kind (binding-kind b)))
-          (return-from tlookup* b)))))
+(defun bind (scope ns name kind value)
+  (let ((known (find-binding scope ns name)))
+    (when (binding-field known kind)
+      (error "Rebinding ~a in binding for ~a (~a)" kind name ns))
+    (push (cons kind value) (binding-fields known))))
 
-(defun tlookup (env name kind)
-  (let ((found (tlookup* env name kind)))
-    (if found
-        (binding-val found)
-        (error "Undefined type ~a" name))))
-
-(defun tbind (env name kind val)
-  (let ((b (binding name val kind)))
-    (push b (scope-type env))
-    b))
-
-(defun plookup* (env name kind)
-  (loop :for cur := env :then (scope-prev cur) :while cur :do
-     (loop :for b :in (scope-pat cur) :do
-        (when (and (equal (binding-name b) name) (eq kind (binding-kind b)))
-          (return-from plookup* b)))))
-
-(defun plookup (env name kind)
-  (let ((found (plookup* env name kind)))
-    (if found
-        (binding-val found)
-        (error "Undefined pattern ~a" name))))
-
-(defun pbind (env name kind val)
-  (let ((b (binding name val kind)))
-    (push b (scope-pat env))
-    b))
-
+(defun bind-word (word ns kind value)
+  (bind (h-word-env word) ns (h-word-name word) kind value))

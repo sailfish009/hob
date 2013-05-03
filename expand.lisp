@@ -1,48 +1,56 @@
 (in-package :hob)
 
 (defparameter *toplevel* (scope nil))
+(defparameter *special-forms* ())
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun do-define-val-macro (seqp name body)
-    (let* ((kind (if seqp :seq-macro (if (char= (schar name 0) #\#) :special :macro)))
-           (base (vlookup* *toplevel* name kind)))
-      (if base
-          (setf (binding-val base) body)
-          (vbind *toplevel* name kind body))))
-  (defun do-define-type-macro (name body)
-    (let* ((kind (if (char= (schar name 0) #\#) :special :macro))
-           (base (tlookup* *toplevel* name kind)))
-      (if base
-          (setf (binding-val base) body)
-          (tbind *toplevel* name kind body))))
-  (defun do-define-pat-macro (name body)
-    (let* ((kind (if (char= (schar name 0) #\#) :special :macro))
-           (base (plookup* *toplevel* name kind)))
-      (if base
-          (setf (binding-val base) body)
-          (pbind *toplevel* name kind body)))))
+  (defun do-define-macro (seqp ns name body)
+    (let* ((kind (if seqp :seq-macro :macro))
+           (base (get-binding *toplevel* ns name))
+           (cons (assoc kind (binding-fields base))))
+      (if cons
+          (setf (cdr cons) body)
+          (push (cons kind body) (binding-fields base)))))
+  (defun do-define-special-form (name outer inner)
+    (let ((known (assoc name *special-forms* :test #'string=)))
+      (if known
+          (setf (cdr known) (cons outer inner))
+          (push (cons name (cons outer inner)) *special-forms*)))))
 
-(defmacro define-macro (type name &body clauses)
-  (let ((a (gensym))
-        (e (if (consp name) (prog1 (second name) (setf name (car name))) (gensym))))
-    `(,(ecase type (:value 'do-define-val-macro) (:type 'do-define-type-macro) (:pat 'do-define-pat-macro))
-       ,@(when (eq type :value) '(nil))
-       ,name
-       (lambda (,e ,a)
-         (declare (ignorable ,e))
-         (let ((*expanding* (h-app-head ,a)))
+(defmacro define-macro (ns name &body clauses)
+  (let ((a (gensym)))
+    `(do-define-macro nil ,ns ,name
+       (lambda (,a)
+         (let ((*expanding* ,a))
            (match* (h-app-args ,a) ,@clauses
-                   (t (syntax-error (h-app-args ,a) "Bad arguments to ~a" ,name))))))))
+                   (t (syntax-error (h-app-head ,a) "Bad arguments to ~a" ,name))))))))
 
-(defmacro define-seq-macro (name (&rest args) &body body)
-  (let (env arg)
-    (ecase (length args)
-      (1 (setf env (gensym) arg (car args)))
-      (2 (setf env (car args) arg (second args))))
-    `(do-define-val-macro t ,name
-                          (lambda (,env ,arg)
-                            (declare (ignorable ,env))
-                            ,@body))))
+(defmacro define-seq-macro (name (arg) &body body)
+  `(do-define-macro t :value ,name (lambda (,arg) ,@body)))
+
+(defmacro define-special-form (name (&optional env form) &body clauses)
+  (let ((env (or env (gensym)))
+        (form (or form (gensym))))
+    `(do-define-special-form ,name
+       (lambda (,env ,form)
+         (declare (ignorable ,env))
+         (let ((*expanding* ,form))
+           (match* (h-app-args ,form)
+             ,@(loop :for (pat . body) :in clauses
+                  :when (member :outer body) :collect
+                  (cons pat (nthcdr (1+ (position :outer body)) body)))
+             (t ,form))))
+       (lambda (,env ,form)
+         (declare (ignorable ,env))
+         (let ((*expanding* ,form))
+           (match* (h-app-args ,form)
+             ,@(loop :for (pat . body) :in clauses :collect
+                  (cons pat (loop :for elt :in body
+
+                               :when (eq elt :outer) :do (return b)
+                               :collect elt :into b :finally (return b))))
+             (t (syntax-error (h-app-head ,form) "Bad arguments to ~a" ,name))))))))
+          
 
 (defun test-cases (cases)
   (let (n-args)
@@ -56,10 +64,13 @@
         (t (syntax-error case "expected arrow application"))))
     n-args))
 
-(define-macro :value ("#def" env)
-  ((pat value) (h-app "#def" pat (expand-value value env))))
+(define-special-form "#def" (env)
+  ((pat value)
+   (h-app "#def" pat (expand-value value env))
+   :outer
+   (h-app "#def" (expand-pattern pat env) value)))
 
-(define-macro :value ("#match" env)
+(define-special-form "#match" (env)
   ((values cases)
    (let ((n-cases (test-cases cases))
          (values (mapseq (value values) (expand-value value env))))
@@ -73,14 +84,36 @@
                            (h-app h pats (expand-value body inner)))))))))
        (h-app "#match" values cases)))))
 
-(define-macro :value ("#fn" env)
+(define-special-form "#fn" (env)
   ((args body)
    (let ((inner (scope env)))
      (doseq (arg args)
        (unless (is-variable arg)
          (syntax-error arg "invalid binding in argument list"))
-       (vbind inner (h-word-name arg) :value nil))
+       (get-binding inner :value (h-word-name arg)))
      (h-app "#fn" args (expand-value body inner)))))
+
+(defun as-binding (word env ns)
+  (get-binding env ns (h-word-name word))
+  (assert (not (h-word-env word)))
+  (setf (h-word-env word) env)
+  word)
+
+(define-special-form "#type" (env form)
+  (((:as :word name) (:as :seq args) (as :seq forms))
+   (let ((inner (scope env)))
+     (doseq ((:as :word arg) args)
+       (as-binding arg inner :type))
+     (h-app "#type" name args (mapseq (form forms)
+                                (match form
+                                  ((name . fields)
+                                   (h-app* name (loop :for field :in fields :collect
+                                                   (expand-type field inner))))))))
+   :outer
+   (as-binding name env :type)
+   (doseq (((:as :word vname) . fields) forms)
+     (as-binding vname env :value))
+   form))
 
 ;; Value expansion
 
@@ -90,47 +123,36 @@
 (defun expand-value-inner (expr env)
   (match expr
     ((head . rest)
-     (let ((spec-form (and (h-word-p head) (vlookup* env (h-word-name head) :special))))
-       (if spec-form
-           (funcall (binding-val spec-form) env expr)
+     (let ((special (and (h-word-p head) (cdr (assoc (h-word-name head) *special-forms* :test #'string=)))))
+       (if special
+           (funcall (car special) env expr)
            (h-app* (expand-value head env) (loop :for arg :in rest :collect (expand-value arg env))))))
     ((:seq elts)
      (let ((can-expand (match (car elts)
-                         (((:word name) . :_)
-                          (let ((macro (vlookup* env name :seq-macro)))
-                            (and macro (binding-val macro))))
+                         (((:word name) . :_) (lookup env :value name :seq-macro))
                          (:_ nil))))
        (if can-expand
-           (expand-value (funcall can-expand env expr) env)
+           (expand-value (funcall can-expand expr) env)
            (expand-value-seq elts env))))
+    (:word (unless (h-word-env expr) (setf (h-word-env expr) env)) expr)
     (:_ expr)))
 
 (defun expand-value-outer (expr env)
   (loop :do
      (match expr
        (((:word name) . :_)
-        (let ((macro (vlookup* env name :macro)))
-          (if macro
-              (setf expr (funcall (binding-val macro) env expr))
-              (return expr))))
+        (let ((special (cdr (assoc name *special-forms* :test #'string=))))
+          (if special
+              (return (funcall (cdr special) env expr))
+              (let ((macro (lookup env :value name :macro)))
+                (if macro
+                    (setf expr (funcall macro expr))
+                    (return expr))))))
        (t (return expr)))))
 
 (defun expand-value-seq (exprs env)
   (let ((env (scope env)))
-    (setf exprs (loop :for expr :in exprs :collect
-                   (let ((expr (expand-value-outer expr env)))
-                     (match expr
-                       (("#type" (:word name) :_ (:seq forms))
-                        (tbind env name :type nil)
-                        (loop :for form :in forms :do
-                           (match form
-                             (("#variant" (:word name) . :_)
-                              (vbind env name :value nil)
-                              ;; FIXME shadow pattern
-                              ))))
-                       ;; FIXME relying on def->#def to expand patterns and thus shadow vars
-                       (:_))
-                     expr)))
+    (setf exprs (loop :for expr :in exprs :collect (expand-value-outer expr env)))
     (h-seq (loop :for expr :in exprs :collect (expand-value-inner expr env)))))
 
 ;; Pattern expansion
@@ -138,13 +160,17 @@
 (defun reg-binding (expr env &optional (check t))
   (let ((name (h-word-name expr)))
     (unless (string= name "_")
-      (when (and check (vlookup* env name :value))
+      (when (and check (find-binding env :value name))
         (syntax-error expr "binding ~a multiple times" name))
-      (vbind env name :value nil))))
+      (as-binding expr env :value)))
+  expr)
 
 (defun expand-pattern (expr env)
   (match expr
-    (:word (when (is-variable expr) (reg-binding expr env)) expr)
+    (:word
+     (if (is-variable expr)
+         (reg-binding expr env)
+         (expand-value expr env)))
     (:lit expr)
     ;; FIXME pattern macros
     ((head . args) (h-app* head (loop :for arg :in args :collect (expand-pattern arg env))))
@@ -153,26 +179,27 @@
 (defun expand-patterns (expr env)
    (mapseq (pat expr) (expand-pattern pat env)))
 
-(defun pattern-vars (pat)
-  (let ((*bound* ()))
-    (labels ((iter (pat)
-               (match pat
-                 (:word (when (is-variable pat) (reg-binding pat nil)))
-                 ((:_ . args) (dolist (arg args) (iter arg)))
-                 (:_))))
-      (if (h-seq-p pat)
-          (doseq (p pat) (iter p))
-          (iter pat))
-      *bound*)))
+;; Type expansion
+
+(defun expand-type (expr env)
+  (match expr
+    (:word
+     (unless (h-word-env expr) (setf (h-word-env expr) env))
+     expr)
+    ((head . args)
+     (h-app* (expand-type head env)
+             (loop :for arg :in args :collect (expand-type arg env))))
+    (:lit (syntax-error expr "found literal in type position"))
+    (:seq (syntax-error expr "found sequence in type position"))))
 
 ;; Tester
 
 (defun test-expand (str &optional name)
-  (expand-value (parse str name) *toplevel*))
+  (expand-value (parse str name) (scope *toplevel*)))
 
 ;; Macros
 
-(define-macro :value ("def" env)
+(define-macro :value "def"
   ((pat value) (h-app "#def" pat value)))
 
 (define-macro :value "if"
