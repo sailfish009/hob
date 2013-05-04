@@ -93,26 +93,44 @@
        (get-binding inner :value (h-word-name arg)))
      (h-app "#fn" args (expand-value body inner)))))
 
-(defun as-binding (word env ns)
+(defun as-binding (word env ns &optional is-const)
   (get-binding env ns (h-word-name word))
-  (assert (not (h-word-env word)))
   (setf (h-word-env word) env)
+  (if is-const
+      (when (is-variable word) (syntax-error word "using variable name for constant"))
+      (unless (is-variable word) (syntax-error word "using constant name for variable")))
   word)
 
-(define-special-form "#type" (env form)
-  (((:as :word name) (:as :seq args) (as :seq forms))
-   (let ((inner (scope env)))
-     (doseq ((:as :word arg) args)
-       (as-binding arg inner :type))
-     (h-app "#type" name args (mapseq (form forms)
-                                (match form
-                                  ((name . fields)
-                                   (h-app* name (loop :for field :in fields :collect
-                                                   (expand-type field inner))))))))
+(define-special-form "#data" (env form)
+  ((name variants)
+   (match name
+     (:word)
+     (((:word _) . params)
+      (setf env (scope env))
+      (dolist (param params)
+        (unless (h-word-p param)
+          (syntax-error param "type parameters must be words"))
+        (as-binding param env :type)))
+     (t (syntax-error name "invalid name form in data declaration")))
+   (h-app "#data" name
+          (mapseq (variant variants)
+            (match variant
+              (:word variant)
+              (((:as :word name) . args)
+               (h-app* name (loop :for arg :in args :collect
+                               (expand-type arg env)))))))
    :outer
-   (as-binding name env :type)
-   (doseq (((:as :word vname) . fields) forms)
-     (as-binding vname env :value))
+   (match name
+     (:word (as-binding name env :type))
+     (((:as :word name) . _) (as-binding name env :type))
+     (t))
+   (doseq (variant variants)
+     (multiple-value-bind (name args)
+         (match variant ((name . args) (values name args)) (t variant))
+       (unless (h-word-p name)
+         (syntax-error name "variant names must be words"))
+       (as-binding name env :value (not args))
+       (as-binding name env :pattern (not args))))
    form))
 
 ;; Value expansion
@@ -235,3 +253,6 @@
          (t (syntax-error b "malformed let binding"))))
      (h-app "#match" (h-seq (nreverse values))
             (h-app "->" (h-seq (nreverse pats)) body)))))
+
+(define-macro :value "data"
+  ((name variants) (h-app "#data" name variants)))

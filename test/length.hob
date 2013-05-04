@@ -1,6 +1,6 @@
 # -> 6
 
-type List: a -> cons a (List a); $nil
+data (List a): cons a (List a); $nil
 
 def length1:
   (cons _ y) -> 1 + (length1 y)
