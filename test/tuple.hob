@@ -9,4 +9,4 @@ def x: cons 1 $nil, 2, $nil
 
 def (y, z, a): x
 
-z + (car y) + (fst (1, 2))
+z + ((car y) + (fst (1, 2)))

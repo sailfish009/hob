@@ -82,3 +82,18 @@
 (bind! *top* :type "Bool" :type *bool*)
 (bind! *top* :value "$true" :type (inst *bool* ()))
 (bind! *top* :value "$false" :type (inst *bool* ()))
+
+;; Tuples
+
+(defun declare-tuple (arity)
+  (let* ((cx (gensym))
+         (*type-cx* (cons cx *type-cx*))
+         (name (with-output-to-string (out) (dotimes (i (1- arity)) (write-char #\, out))))
+         (vars (loop :repeat arity :collect (mkvar)))
+         (type (data name vars nil))
+         (ctor (tclose cx (fun vars (inst type vars)))))
+    (bind! *top* :type name :type type)
+    (bind! *top* :value name :type ctor)
+    (bind! *top* :pattern name :form (tform type vars ctor))))
+
+(loop :for a :from 2 :below 10 :do (declare-tuple a))

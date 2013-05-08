@@ -38,14 +38,14 @@
           (unless (= (length targs) (length args))
             (hob-type-error expr "incorrect number of parameters for type `~a`" head))
           (inst found (loop :for targ :in targs :for arg :in args :collect
-                         (unify expr (parse-type arg) (parse-type targ)))))
+                         (unify expr arg (parse-type targ)))))
          (t (hob-type-error expr "type `~a` does not take type parameters" head)))))))
 
 (defvar *type-cx* nil)
 
 (defun mkvar () (tvar *type-cx* nil nil))
 
-(defstruct (instance (:constructor instance (cx))) cx subst instantiating)
+(defstruct (instance (:constructor instance (cx))) cx subst (instantiating 0))
 
 (defun instantiate (type inst)
   (labels ((ins (tp)
@@ -67,38 +67,38 @@
 
 (defun typecheck-seq (exprs)
   (let* ((cx (gensym))
-         (*type-cx* (cons cx *type-cx*)))
+         (*type-cx* (cons cx *type-cx*))
+         (def-types ()))
     (dolist (expr exprs)
       (match expr
         (("#data" name variants)
          (multiple-value-bind (name args) (match name (:word name) ((name . args) (values name args)))
-           (bind-word name :type :type (data (h-word-name name) args nil))))
-        (("#def" name :_)
-         (bind-word name :value :type (tclose cx (mkvar))))
+           (let ((argvars (loop :for arg :in args :collect
+                             (let ((v (mkvar))) (bind-word arg :type :type (tparam v)) v))))
+             (bind-word name :type :type (data (h-word-name name) argvars nil)))))
+        (("#def" pat :_) (push (typecheck-pat pat t) def-types))
         (t)))
     (dolist (expr exprs)
       (match expr
         (("#data" name variants)
          (let ((name (match name (:word name) ((name . :_) name))))
            (let* ((tp (lookup-word name :type :type))
-                  (argvars (loop :for arg :in (slot-value tp 'args) :collect
-                              (let ((v (mkvar))) (bind-word arg :type :type (tparam v)) v)))
-                  (tpinst (inst tp argvars)))
+                  (tpinst (inst tp (data-args tp))))
              (doseq (variant variants)
                (multiple-value-bind (name fields)
                    (match variant
                      (:word variant)
                      ((name . fields) (values name (mapcar #'parse-type fields))))
                  (let ((vtype (if fields (fun fields tpinst) tpinst)))
-                   (when argvars (setf vtype (tclose cx vtype)))
+                   (when (data-args tp) (setf vtype (tclose cx vtype)))
                    (bind-word name :value :type vtype)
                    (bind-word name :pattern :form (tform tp fields vtype))))))))
         (t)))
+    (setf def-types (nreverse def-types))
     (dolist (expr exprs)
       (match expr
-        (("#def" pat val)
-         (evcase (lookup-word pat :value :type)
-           ((tclose type) (unify pat type (typecheck val)))))
+        (("#def" :_ val)
+         (unify val (pop def-types) (typecheck val)))
         (t))))
   (let (last)
     (dolist (expr exprs)
@@ -137,22 +137,24 @@
          (t found))))
     (:lit (type-of-lit expr))))
 
-(defun typecheck-pat (pat)
+(defun typecheck-pat (pat &optional close)
   (match pat
     (:lit (type-of-lit pat))
     (:word
      (if (is-variable pat)
          (if (string= (h-word-name pat) "_")
              (mkvar)
-             (bind-word pat :value :type (mkvar)))
+             (let ((v (mkvar)))
+               (bind-word pat :value :type (if close (tclose (car *type-cx*) v) v))
+               v))
          (typecheck pat)))
     (((:as :word head) . args)
      (let ((found (or (lookup-word head :pattern :form)
                       (hob-type-error head "undefined pattern `~a`" head)))
            (result (mkvar)))
        (unless (= (length args) (length (tform-args found)))
-         (hob-type-error "wrong number of arguments for `~a` (expected ~a)" head (length (tform-args found))))
-       (unify pat (fun (loop :for arg :in args :collect (typecheck-pat arg)) result)
+         (hob-type-error pat "wrong number of arguments for `~a` (expected ~a)" head (length (tform-args found))))
+       (unify pat (fun (loop :for arg :in args :collect (typecheck-pat arg close)) result)
               (vcase (tform-templ found)
                 ((tclose cx type) (instantiate type (instance cx)))
                 (t (tform-templ found))))
@@ -189,13 +191,13 @@
              (setf (tvar-instances t2) (nconc (tvar-instances t1) (tvar-instances t2))
                    (tvar-instances t1) nil)
              (loop :for (inst . v) :in (tvar-instances t1) :do
-                (when (instance-instantiating inst)
+                (when (> (instance-instantiating inst) 25)
                   (hob-type-error expr "creating infinite type"))
-                (setf (instance-instantiating inst) t)
+                (incf (instance-instantiating inst))
                 (unwind-protect
                      ;; FIXME this expr will be utterly useless for understanding errors
                      (unify expr v (instantiate t2 inst))
-                  (setf (instance-instantiating inst) nil)))))
+                  (decf (instance-instantiating inst))))))
        t2)
       ((inst type args)
        (unless (and (typep t2 'inst)
