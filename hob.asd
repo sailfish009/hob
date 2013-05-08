@@ -8,5 +8,7 @@
                (:file "lex")
                (:file "parse")
                (:file "scope")
+               (:file "std")
                (:file "expand")
-               (:file "test")))
+               (:file "test")
+               (:file "type")))

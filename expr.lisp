@@ -80,6 +80,13 @@
          (if (h-seq-p ,s)
              (h-seq (loop :for ,var :in (h-seq-vals ,s) :collect (,b ,var)))
              (,b ,s))))))
+(defmacro lmapseq ((var seq) &body body)
+  (let ((b (gensym)) (s (gensym)))
+    `(flet ((,b (,var) ,@body))
+       (let ((,s ,seq))
+         (if (h-seq-p ,s)
+             (loop :for ,var :in (h-seq-vals ,s) :collect (,b ,var))
+             (list (,b ,s)))))))
 (defmacro doseq ((pat seq) &body body)
   (let ((b (gensym)) (s (gensym)) (v (gensym)))
     `(block nil

@@ -14,11 +14,10 @@
 
 (defmethod print-object ((err hob-program-error) stream)
   (call-next-method)
-  (unless (zerop (hob-error-line err))
-    (when (hob-error-line err)
-      (let ((f (hob-error-file err)))
-        (format stream " (~@[~a ~]line ~a, char ~a)" (and f (file-namestring f))
-                (hob-error-line err) (hob-error-col err))))))
+  (when (hob-error-line err)
+    (let ((f (hob-error-file err)))
+      (format stream " (~@[~a ~]line ~a, char ~a)" (and f (file-namestring f))
+              (hob-error-line err) (hob-error-col err)))))
 
 (define-condition hob-syntax-error (hob-program-error) ())
 

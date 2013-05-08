@@ -26,17 +26,29 @@
        (when found (return found)))))
 
 (defun binding-field (b kind)
-  (cdr (assoc kind (binding-fields b))))
+  (assoc kind (binding-fields b)))
 
 (defun lookup (env ns name kind)
   (let ((b (lookup-binding env ns name)))
-    (and b (binding-field b kind))))
+    (and b (cdr (binding-field b kind)))))
+
+(defun lookup-word (word ns kind)
+  (lookup (h-word-env word) ns (h-word-name word) kind))
 
 (defun bind (scope ns name kind value)
-  (let ((known (find-binding scope ns name)))
+  (let ((known (get-binding scope ns name)))
     (when (binding-field known kind)
       (error "Rebinding ~a in binding for ~a (~a)" kind name ns))
-    (push (cons kind value) (binding-fields known))))
+    (push (cons kind value) (binding-fields known)))
+  value)
+
+(defun bind! (scope ns name kind value)
+  (let* ((known (get-binding scope ns name))
+         (field (binding-field known kind)))
+    (if field
+        (setf (cdr field) value)
+        (push (cons kind value) (binding-fields known))))
+  value)
 
 (defun bind-word (word ns kind value)
   (bind (h-word-env word) ns (h-word-name word) kind value))

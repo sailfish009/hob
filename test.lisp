@@ -13,7 +13,7 @@
   (when (stringp file)
     (setf file (merge-pathnames (concatenate 'string "test/" file ".hob") *path*)))
   (with-open-file (in file :element-type '(unsigned-byte 8))
-    (test-expand in (pathname-name file)))
+    (typecheck (test-expand in (pathname-name file))))
   (return-spec file))
 
 (defun run-testsuite ()

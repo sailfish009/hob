@@ -1,7 +1,7 @@
 # -> 6
 
-(if True 1 2) +
-  (if False (
+(if $true 1 2) +
+  (if $false (
     1
     2
     3
