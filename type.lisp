@@ -45,7 +45,7 @@
 
 (defun mkvar () (tvar *type-cx* nil nil))
 
-(defstruct (instance (:constructor instance (cx))) cx subst)
+(defstruct (instance (:constructor instance (cx))) cx subst instantiating)
 
 (defun instantiate (type inst)
   (labels ((ins (tp)
@@ -189,8 +189,13 @@
              (setf (tvar-instances t2) (nconc (tvar-instances t1) (tvar-instances t2))
                    (tvar-instances t1) nil)
              (loop :for (inst . v) :in (tvar-instances t1) :do
-                ;; FIXME this expr will be utterly useless for understanding errors
-                (unify expr v (instantiate t2 inst)))))
+                (when (instance-instantiating inst)
+                  (hob-type-error expr "creating infinite type"))
+                (setf (instance-instantiating inst) t)
+                (unwind-protect
+                     ;; FIXME this expr will be utterly useless for understanding errors
+                     (unify expr v (instantiate t2 inst))
+                  (setf (instance-instantiating inst) nil)))))
        t2)
       ((inst type args)
        (unless (and (typep t2 'inst)
