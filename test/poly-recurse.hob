@@ -1,0 +1,5 @@
+def foo: a b ->
+  if a (foo $false "x") (foo $true b)
+
+foo $true 10
+foo $false 1.3

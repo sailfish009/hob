@@ -6,7 +6,8 @@
 
 (variant type*
   (prim name sym)
-  (data name args forms))
+  (data name args forms)
+  (tparam val))
 
 (variant type-expr
   (fun args result)
@@ -26,7 +27,7 @@
          ((data args)
           (when args (hob-type-error expr "type `~a` takes type parameters" expr))
           (inst found ()))
-         (tvar found))))
+         ((tparam val) val))))
     (("->" args ret)
      (fun (mapseq (a args) (parse-type a)) (parse-type ret)))
     (((:as :word head) . targs)
@@ -44,21 +45,25 @@
 
 (defun mkvar () (tvar *type-cx* nil nil))
 
-(defun instantiate (type &optional close-cx)
-  (let ((subst ()))
-    (labels ((ins (tp)
-               (setf tp (resolve tp))
-               (vcase tp
-                 ((tvar cx)
-                  (if (or (not close-cx) (member close-cx cx))
-                      (let ((found (assoc tp subst)))
-                        (if found
-                            (cdr found)
-                            (let ((v (mkvar))) (push (cons tp v) subst) v)))
-                      tp))
-                 ((inst type args) (inst type (mapcar #'ins args)))
-                 ((fun args result) (fun (mapcar #'ins args) (ins result))))))
-      (ins type))))
+(defstruct (instance (:constructor instance (cx))) cx subst)
+
+(defun instantiate (type inst)
+  (labels ((ins (tp)
+             (setf tp (resolve tp))
+             (vcase tp
+               ((tvar cx)
+                (if (member (instance-cx inst) cx)
+                    (let ((found (assoc tp (instance-subst inst))))
+                      (if found
+                          (cdr found)
+                          (let ((v (mkvar)))
+                            (push (cons inst v) (tvar-instances tp))
+                            (push (cons tp v) (instance-subst inst))
+                            v)))
+                    tp))
+               ((inst type args) (inst type (mapcar #'ins args)))
+               ((fun args result) (fun (mapcar #'ins args) (ins result))))))
+    (ins type)))
 
 (defun typecheck-seq (exprs)
   (let* ((cx (gensym))
@@ -76,7 +81,8 @@
         (("#data" name variants)
          (let ((name (match name (:word name) ((name . :_) name))))
            (let* ((tp (lookup-word name :type :type))
-                  (argvars (loop :for arg :in (slot-value tp 'args) :collect (bind-word arg :type :type (mkvar))))
+                  (argvars (loop :for arg :in (slot-value tp 'args) :collect
+                              (let ((v (mkvar))) (bind-word arg :type :type (tparam v)) v)))
                   (tpinst (inst tp argvars)))
              (doseq (variant variants)
                (multiple-value-bind (name fields)
@@ -127,7 +133,7 @@
        ;; FIXME different error type
        (unless found (hob-type-error expr "undefined variable `~a`" expr))
        (vcase found
-         ((tclose cx type) (instantiate type cx))
+         ((tclose cx type) (instantiate type (instance cx)))
          (t found))))
     (:lit (type-of-lit expr))))
 
@@ -148,7 +154,7 @@
          (hob-type-error "wrong number of arguments for `~a` (expected ~a)" head (length (tform-args found))))
        (unify pat (fun (loop :for arg :in args :collect (typecheck-pat arg)) result)
               (vcase (tform-templ found)
-                ((tclose cx type) (instantiate type cx))
+                ((tclose cx type) (instantiate type (instance cx)))
                 (t (tform-templ found))))
        result))))
 
@@ -164,8 +170,6 @@
     ((tvar ref) (if ref (setf (tvar-ref ty) (resolve ref)) ty))
     (t ty)))
 
-;; FIXME propagation through instantiated type closures
-
 (defun unify (expr t1 t2)
   (setf t1 (resolve t1)
         t2 (resolve t2))
@@ -180,9 +184,16 @@
        (when (occurs t1 t2)
          (hob-type-error expr "can not construct infinite type ~a ~a" t1 t2))
        (setf (tvar-ref t1) t2)
+       (when (tvar-instances t1)
+         (if (typep t2 'tvar)
+             (setf (tvar-instances t2) (nconc (tvar-instances t1) (tvar-instances t2))
+                   (tvar-instances t1) nil)
+             (loop :for (inst . v) :in (tvar-instances t1) :do
+                ;; FIXME this expr will be utterly useless for understanding errors
+                (unify expr v (instantiate t2 inst)))))
        t2)
       ((inst type args)
-       (unless (and (eq (type-of t2) 'inst)
+       (unless (and (typep t2 'inst)
                     (vcase type
                       (prim (equalp type (inst-type t2)))
                       (t (eq type (inst-type t2))))
