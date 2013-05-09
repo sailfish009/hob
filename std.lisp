@@ -90,7 +90,7 @@
          (*type-cx* (cons cx *type-cx*))
          (name (with-output-to-string (out) (dotimes (i (1- arity)) (write-char #\, out))))
          (vars (loop :repeat arity :collect (mkvar)))
-         (type (data name vars nil))
+         (type (data name vars (list name)))
          (ctor (tclose cx (fun vars (inst type vars)))))
     (bind! *top* :type name :type type)
     (bind! *top* :value name :type ctor)

@@ -89,6 +89,7 @@
                    (match variant
                      (:word variant)
                      ((name . fields) (values name (mapcar #'parse-type fields))))
+                 (push (h-word-name name) (data-forms tp))
                  (let ((vtype (if fields (fun fields tpinst) tpinst)))
                    (when (data-args tp) (setf vtype (tclose cx vtype)))
                    (bind-word name :value :type vtype)
@@ -138,6 +139,11 @@
     (:lit (type-of-lit expr))))
 
 (defun typecheck-pat (pat &optional close)
+  (let ((type (typecheck-pat* pat close)))
+    (when *context* (setf (gethash pat (context-pat-types *context*)) type))
+    type))
+
+(defun typecheck-pat* (pat close)
   (match pat
     (:lit (type-of-lit pat))
     (:word

@@ -9,12 +9,19 @@
 
 (define-condition test-failure (simple-error) ())
 
+(defun test-compile (file &optional name)
+  (with-context ()
+    (let ((ast (test-expand file name)))
+      (typecheck ast)
+      (expand-matches ast))))
+
 (defun run-test (file)
-  (when (stringp file)
-    (setf file (merge-pathnames (concatenate 'string "test/" file ".hob") *path*)))
-  (with-open-file (in file :element-type '(unsigned-byte 8))
-    (typecheck (test-expand in (pathname-name file))))
-  (return-spec file))
+  (with-context ()
+    (when (stringp file)
+      (setf file (merge-pathnames (concatenate 'string "test/" file ".hob") *path*)))
+    (with-open-file (in file :element-type '(unsigned-byte 8))
+      (test-compile in (pathname-name file)))
+    (return-spec file)))
 
 (defun run-testsuite ()
   (let ((ok t))

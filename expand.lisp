@@ -198,4 +198,3 @@
 
 (defun test-expand (str &optional name)
   (expand-value (parse str name) (scope *top*)))
-
