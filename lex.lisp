@@ -112,7 +112,8 @@
     (multiple-value-bind (type val)
         (cond
           ((not ch) (values :eof t))
-          ((eql ch #\") (values :string (read-string in)))
+          ((eql ch #\") (values :string (read-string in #\")))
+          ((eql ch #\`) (values :word (read-string in #\`)))
           ((eql ch #\:)
            (cond ((eql (cur-ch in) #\:) (next in) (values :op "::"))
                  (t (values :punc #\:))))
@@ -141,14 +142,14 @@
             (tstream-tok-end-line in) (tstream-line in)
             (tstream-tok-end-col in) (- (tstream-pos in) (tstream-start-of-line in))))))
 
-(defun read-string (in)
+(defun read-string (in quote)
   (let ((start (tstream-pos in)))
     (with-output-to-string (out)
       (loop (let ((ch (cur-ch in)))
               (next in)
               (cond ((not ch) (hob-stream-error in start "Unterminated string constant"))
                     ((eql ch #\\) (write-char (read-escaped-char in) out))
-                    ((eql ch #\") (return))
+                    ((eql ch quote) (return))
                     (t (write-char ch out))))))))
 
 (defun read-hex-bytes (in n)
@@ -165,7 +166,7 @@
 (defun read-escaped-char (in)
   (let ((ch (next in)))
     (case ch
-      (nil (hob-stream-error in (tstream-pos in) "Invalid character escape"))
+      ((nil) (hob-stream-error in (tstream-pos in) "Invalid character escape"))
       (#\n #\newline) (#\r #\return) (#\t #\tab)
       (#\b #\backspace) (#\0 #\null)
       (#\x (code-char (read-hex-bytes in 2)))

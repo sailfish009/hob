@@ -107,20 +107,21 @@
     (etypecase v
       (string (write-escaped-string v out))
       (cons (write-string (car v) out) (write-escaped-string (cdr v) out))
-      (character (write-char #\\ out) (write-escaped-char v out))
+      (character (write-char #\\ out) (write-escaped-char v out nil))
       (integer (write v :stream out))
       (real (format out "~,,,,,,'eE" v)))))
 
 (defun write-escaped-string (str out)
   (write-char #\" out)
   (loop :for ch :across str :do
-     (write-escaped-char ch out))
+     (write-escaped-char ch out #\"))
   (write-char #\" out))
 
-(defun write-escaped-char (ch out)
+(defun write-escaped-char (ch out quote)
   (let ((escd (case ch
                 (#\newline #\n) (#\return #\r) (#\tab #\t)
                 (#\backspace #\b) (#\null #\0) (#\\ #\\) (t nil))))
+    (when (eq ch quote) (setf escd ch))
     (if escd
         (progn (write-char #\\ out) (write-char escd out))
         (let ((code (char-code ch)))
@@ -148,11 +149,14 @@
 
 (defmethod print-object ((e h-word) out)
   (let ((nm (h-word-name e)))
-    (if (and (not (every #'is-word-char nm))
-             (not (member nm '("::" "()") :test #'string=)))
+    (if (or (= (length nm) 0)
+            (and (not (every #'is-word-char nm))
+                 (not (member nm '("::" "()") :test #'string=))))
         (progn
-          (write-char #\\ out)
-          (write-escaped-string nm out))
+          (write-char #\` out)
+          (loop :for ch :across nm :do
+             (write-escaped-char ch out #\`))
+          (write-char #\` out))
         (write-string nm out))))
 
 (defun dissect-improper-list (lst)
