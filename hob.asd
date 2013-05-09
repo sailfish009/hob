@@ -10,6 +10,7 @@
                (:file "context")
                (:file "scope")
                (:file "type")
+               (:file "compile")
                (:file "std")
                (:file "expand")
                (:file "match")

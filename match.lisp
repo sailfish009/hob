@@ -7,7 +7,7 @@
     (("#match" vals cases) (expand-match vals cases))
     (:word expr)
     (:lit expr)
-    ((:seq vals) (h-seq (mapcar #'expand-matches vals)))
+    ((:seq vals) (h-seq (loop :for val :in vals :collect (expand-matches val))))
     ((f . args) (h-app* (expand-matches f) (mapcar #'expand-matches args)))))
 
 (defstruct br pats bound body)
@@ -93,6 +93,7 @@
   (vcase type
     ((data forms) (loop :for f :in forms :for i :from 1 :do
                      (when (equal name f) (return i))))
+
     (t name)))
 
 (defun expand-cases (inputs branches)
@@ -100,7 +101,7 @@
     (unless (br-pats first)
       (return-from expand-cases
         (h-app* (br-body first)
-                (or (reverse (br-bound first)) (list (h-word "()")))))))
+                (or (reverse (br-bound first)) (list (h-word "()" nil *top*)))))))
   (multiple-value-bind (sorted default) (sort-branches branches (car inputs))
     ;; Only condition-less branches, simply continue through
     (unless sorted

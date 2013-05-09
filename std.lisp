@@ -62,6 +62,7 @@
 
 (bind! *top* :type "()" :type *unit*)
 (bind! *top* :value "()" :type (inst *unit* ()))
+(bind! *top* :value "()" :value nil)
 (bind! *top* :type "Int" :type *int*)
 (bind! *top* :type "Float" :type (prim "Float" 'double-float))
 (bind! *top* :type "Char" :type (prim "Char" 'character))
@@ -76,12 +77,19 @@
   (bind! *top* :value "*" :type binary)
   (bind! *top* :value "/" :type binary))
 
+(bind! *top* :value "+" :value (lambda (a b) (+ a b)))
+(bind! *top* :value "-" :value (lambda (a b) (- a b)))
+(bind! *top* :value "*" :value (lambda (a b) (* a b)))
+(bind! *top* :value "/" :value (lambda (a b) (/ a b)))
+
 ;; Booleans
 
-(defvar *bool* (prim "Bool" 'boolean))
+(defvar *bool* (data "Bool" () (list "$true" "$false")))
 (bind! *top* :type "Bool" :type *bool*)
 (bind! *top* :value "$true" :type (inst *bool* ()))
 (bind! *top* :value "$false" :type (inst *bool* ()))
+(bind! *top* :value "$true" :value (vector 1))
+(bind! *top* :value "$false" :value (vector 2))
 
 ;; Tuples
 
@@ -94,6 +102,9 @@
          (ctor (tclose cx (fun vars (inst type vars)))))
     (bind! *top* :type name :type type)
     (bind! *top* :value name :type ctor)
-    (bind! *top* :pattern name :form (tform type vars ctor))))
+    (bind! *top* :pattern name :form (tform type vars ctor))
+    (bind! *top* :value name :value
+           (let ((syms (loop :repeat arity :collect (gensym))))
+             (funcall (compile-s-expr `(lambda ,syms (vector 1 ,@syms))))))))
 
 (loop :for a :from 2 :below 10 :do (declare-tuple a))

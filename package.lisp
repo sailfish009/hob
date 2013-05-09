@@ -4,3 +4,5 @@
 
 (defpackage :hob
   (:use :cl :hob.variant))
+
+(defpackage :hob.gen (:use))
