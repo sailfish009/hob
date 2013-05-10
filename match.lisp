@@ -3,14 +3,16 @@
 (defun transform-list (exprs f)
   (let ((changed :no))
     (dolist (expr exprs)
-      (let ((applied (funcall f expr)))
+      (multiple-value-bind (applied splice) (funcall f expr)
         (when (and (eq changed :no) (not (eq applied expr)))
           (setf changed nil)
           (loop :for copy :in exprs :do
              (when (eq copy expr) (return))
              (push copy changed)))
         (unless (eq changed :no)
-          (push applied changed))))
+          (if splice
+              (dolist (form applied) (push form changed))
+              (push applied changed)))))
     (if (eq changed :no)
         exprs
         (nreverse changed))))
@@ -30,6 +32,8 @@
 (defun expand-matches (expr)
   (match expr
     (("#match" vals cases) (expand-match vals cases))
+    (("#def" :word :_) (transform-expr expr #'expand-matches))
+    (("#def" pat val) (values (expand-destructuring-bind pat val) t))
     (t (transform-expr expr #'expand-matches))))
 
 (defstruct br pats bound body)
@@ -39,6 +43,32 @@
   (let ((name (string-downcase (symbol-name (gensym name)))))
     (get-binding scope :value name)
     (h-word name nil (scope nil))))
+
+(defun expand-destructuring-bind (pat val)
+  (let ((scope (scope nil))
+        (statements ()))
+    (labels ((explore (pat input)
+               (match pat
+                 ((:word nm)
+                  (cond ((is-const nm)
+                         (push (h-app "#assert" pat input) statements))
+                        ((not (equal nm "_"))
+                         (push (h-app "#def" pat input) statements))))
+                 (:lit (push (h-app "#assert" pat input) statements))
+                 ((head . args)
+                  (let ((type (pattern-type pat)))
+                    (push (h-app "#assert" (h-lit (find-disc type (h-word-name head)))
+                                 (h-app "#fld" input (h-lit 0))) statements)
+                    (loop :for arg :in args :for i :from 1 :do
+                       (let ((sym (h-gensym "val" scope)))
+                         (push (h-app "#def" sym (h-app "#fld" input (h-lit i))) statements)
+                         (explore arg sym))))))))
+      (unless (h-word-p val)
+        (let ((top (h-gensym "val" scope)))
+          (push (h-app "#def" top val) statements)
+          (setf val top)))
+      (explore pat val)
+      (nreverse statements))))
 
 (defun expand-match (vals cases)
   (let* ((defs ())
@@ -50,9 +80,11 @@
                                            (expand-matches body))) defs)
                        (make-br :pats (seq-list pats) :bound () :body name))))
          (val-vars (lmapseq (val vals)
-                     (let ((name (h-gensym "val" scope)))
-                       (push (h-app "#def" name val) defs)
-                       name))))
+                     (if (h-word-p val)
+                         val
+                         (let ((name (h-gensym "val" scope)))
+                           (push (h-app "#def" name val) defs)
+                           name)))))
     (push (expand-cases val-vars branches) defs)
     (h-seq (nreverse defs))))
 
@@ -68,6 +100,10 @@
              (list (h-word "_")))))
 
 (defstruct opt name type disc n-args)
+
+(defun pattern-type (pat)
+  (evcase (resolve (gethash pat (context-pat-types *context*)))
+    ((inst type) type)))
 
 (defun sort-branches (branches val)
   (let (sorted default)
@@ -98,16 +134,13 @@
                                         (loop :for d :in default :collect (extend-default d (length args))))))
                          (push (cons opt (cons br defs)) sorted)))))))
       (loop :for br :in branches :for pat := (car (br-pats br)) :do
-         (let ((type (vcase (resolve (gethash pat (context-pat-types *context*)))
-                       ((inst type) type)
-                       (t nil))))
-           (match pat
-             (:lit (add-opt type (h-lit-val pat) br))
-             ((:word nm)
-              (if (is-const nm)
-                  (add-opt type nm br)
-                  (add-default br (unless (equal nm "_") val))))
-             (((:word nm) . args) (add-opt type nm br args)))))
+         (match pat
+           (:lit (add-opt (pattern-type pat) (h-lit-val pat) br))
+           ((:word nm)
+            (if (is-const nm)
+                (add-opt (pattern-type pat) nm br)
+                (add-default br (unless (equal nm "_") val))))
+           (((:word nm) . args) (add-opt (pattern-type pat) nm br args))))
       (values (loop :for (opt . brs) :in sorted :collect (cons opt (nreverse brs)))
               (nreverse default)))))
 

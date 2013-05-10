@@ -28,6 +28,7 @@
                        `((equal ,(hcompile lit) ,(hcompile val)) ,(hcompile body))))
               ,@(unless saw-t `((t (error "fell through")))))))
     (("#fld" val i) `(svref ,(hcompile val) ,(h-lit-val i)))
+    (("#assert" a b) `(unless (equal ,(hcompile a) ,(hcompile b)) (error "matching failed")))
     ((fn . args) `(funcall ,(hcompile fn)
                            ,@(loop :for arg :in args :collect (hcompile arg))))))
 
