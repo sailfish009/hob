@@ -1,14 +1,36 @@
 (in-package :hob)
 
-;; FIXME use a transforming helper that prevent unneccesary copying
+(defun transform-list (exprs f)
+  (let ((changed :no))
+    (dolist (expr exprs)
+      (let ((applied (funcall f expr)))
+        (when (and (eq changed :no) (not (eq applied expr)))
+          (setf changed nil)
+          (loop :for copy :in exprs :do
+             (when (eq copy expr) (return))
+             (push copy changed)))
+        (unless (eq changed :no)
+          (push applied changed))))
+    (if (eq changed :no)
+        exprs
+        (nreverse changed))))
+
+(defun transform-expr (expr f)
+  (match expr
+    ((:seq vals) (let ((trans (transform-list vals f)))
+                   (if (eq trans vals) expr (h-seq trans))))
+    ((head . args)
+     (let ((trans-head (funcall f head))
+           (trans-args (transform-list args f)))
+       (if (and (eq trans-head head) (eq trans-args args))
+           expr
+           (h-app* trans-head trans-args))))
+    (t expr)))
 
 (defun expand-matches (expr)
   (match expr
     (("#match" vals cases) (expand-match vals cases))
-    (:word expr)
-    (:lit expr)
-    ((:seq vals) (h-seq (loop :for val :in vals :collect (expand-matches val))))
-    ((f . args) (h-app* (expand-matches f) (mapcar #'expand-matches args)))))
+    (t (transform-expr expr #'expand-matches))))
 
 (defstruct br pats bound body)
 
@@ -76,7 +98,7 @@
                                         (loop :for d :in default :collect (extend-default d (length args))))))
                          (push (cons opt (cons br defs)) sorted)))))))
       (loop :for br :in branches :for pat := (car (br-pats br)) :do
-         (let ((type (evcase (resolve (gethash pat (context-pat-types *context*)))
+         (let ((type (vcase (resolve (gethash pat (context-pat-types *context*)))
                        ((inst type) type)
                        (t nil))))
            (match pat
