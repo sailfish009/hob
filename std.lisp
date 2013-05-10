@@ -57,12 +57,7 @@
 
 ;; Types
 
-(defvar *unit* (prim "()" 'null))
-(defvar *int* (prim "Int" 'integer))
-
-(bind! *top* :type "()" :type *unit*)
-(bind! *top* :value "()" :type (inst *unit* ()))
-(bind! *top* :value "()" :value nil)
+(defparameter *int* (prim "Int" 'integer))
 (bind! *top* :type "Int" :type *int*)
 (bind! *top* :type "Float" :type (prim "Float" 'double-float))
 (bind! *top* :type "Char" :type (prim "Char" 'character))
@@ -82,9 +77,16 @@
 (bind! *top* :value "*" :value (lambda (a b) (* a b)))
 (bind! *top* :value "/" :value (lambda (a b) (/ a b)))
 
+;; Unit type
+
+(defparameter *unit* (data "()" () (list "()")))
+(bind! *top* :type "()" :type *unit*)
+(bind! *top* :value "()" :type (inst *unit* ()))
+(bind! *top* :value "()" :value (vector 1))
+
 ;; Booleans
 
-(defvar *bool* (data "Bool" () (list "$true" "$false")))
+(defparameter *bool* (data "Bool" () (list "$true" "$false")))
 (bind! *top* :type "Bool" :type *bool*)
 (bind! *top* :value "$true" :type (inst *bool* ()))
 (bind! *top* :value "$false" :type (inst *bool* ()))

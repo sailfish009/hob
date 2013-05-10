@@ -1,0 +1,10 @@
+# -> ! before it is defined
+
+def foo: () -> bar
+
+foo ()
+
+# FIXME this will no longer hold when the compiler becomes smart about
+# constant expressions
+
+def bar: 1 + 2

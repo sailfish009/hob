@@ -1,5 +1,7 @@
 (in-package :hob)
 
+;; FIXME disallow #let/#date style bindings outside of blocks
+
 (defparameter *special-forms* ())
 
 (eval-when (:compile-toplevel :load-toplevel :execute)

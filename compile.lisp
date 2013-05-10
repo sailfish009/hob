@@ -33,28 +33,32 @@
                            ,@(loop :for arg :in args :collect (hcompile arg))))))
 
 (defun hcompile-seq (exprs)
-  (let (vars)
+  (let (vars top body)
     (dolist (expr exprs)
       (match expr
-        (("#def" pat val) ;; FIXME assumption that pat is a word
-         (push (bind-word pat :value :value (as-var pat)) vars))
+        (("#def" name :_)
+         (push (bind-word name :value :value (as-var name)) vars))
         (("#data" :_ variants)
-         (doseq (variant variants)
-           (let ((name (match variant (:word variant) ((name . :_) name))))
-             (push (bind-word name :value :value (as-var name)) vars))))
+         (loop :for variant :in (seq-list variants) :for i :from 1 :do
+            (multiple-value-bind (name ctor)
+                (match variant
+                  (:word (values variant `(vector ,i)))
+                  ((name . args)
+                   (let ((syms (loop :repeat (length args) :collect (gensym))))
+                     (values name `(lambda ,syms (vector ,i ,@syms))))))
+              (push `(setf ,(as-var name) ,ctor) top)
+              (push (bind-word name :value :value (as-var name)) vars))))
         (t)))
+    (dolist (expr exprs)
+      (match expr
+        (("#def" name val)
+         (let ((set `(setf ,(as-var name) ,(hcompile val))))
+           (if (match val (("#fn" . :_) t) (t nil)) (push set top) (push set body))))
+        (("#data" . :_))
+        (t (push (hcompile expr) body))))
     `(let (,@vars)
-       ,@(loop :for expr :in exprs :collect
-           (match expr
-             (("#def" pat val) `(setf ,(as-var pat) ,(hcompile val)))
-             (("#data" :_ variants)
-              `(progn
-                ,@(loop :for variant :in (seq-list variants) :for i :from 1 :collect
-                     (match variant
-                       (:word `(setf ,(as-var variant) (vector ,i)))
-                       ((name . args) (let ((syms (loop :repeat (length args) :collect (gensym))))
-                                        `(setf ,(as-var name) (lambda ,syms (vector ,i ,@syms)))))))))
-             (t (hcompile expr)))))))
+       ,@(nreverse top)
+       ,@(nreverse body))))
 
 (defun compile-s-expr (s-expr)
   (handler-bind ((warning #'muffle-warning))

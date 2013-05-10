@@ -5,6 +5,7 @@
                (:file "variant")
                (:file "syntax-err")
                (:file "expr")
+               (:file "expr-util")
                (:file "lex")
                (:file "parse")
                (:file "context")
@@ -14,4 +15,5 @@
                (:file "std")
                (:file "expand")
                (:file "match")
+               (:file "order")
                (:file "test")))

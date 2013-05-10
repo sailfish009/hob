@@ -213,7 +213,7 @@
                   `((prog1 t (setf ,rest (nthcdr ,(length args) ,in))))))))
 
 (defmacro match (value &body clauses)
-  (when (and (not (cdr clauses)) (symbolp (caar clauses)))
+  (when (and (not (cdr clauses)) (symbolp (caar clauses)) (not (keywordp (caar clauses))))
     (return-from match `(let ((,(caar clauses) ,value)) ,@(cdar clauses))))
   (let ((v (gensym)))
     `(let ((,v ,value))
