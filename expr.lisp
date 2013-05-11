@@ -1,5 +1,7 @@
 (in-package :hob)
 
+(declaim (special *top*))
+
 (defstruct pos file start-line start-col end-line end-col)
 
 (defun pos-less (a b)
@@ -30,7 +32,8 @@
 (defstruct (h-app (:include h-expr) (:constructor mk-h-app (head args))) head args)
 (defun h-app* (head args)
   (if (stringp head)
-      (setf head (h-word head (and *expanding* (expr-start-pos *expanding*))))
+      (setf head (h-word head (and *expanding* (expr-start-pos *expanding*))
+                         (when (eql (schar head 0) #\#) *top*)))
       (assert (h-expr-p head)))
   (dolist (arg args) (assert (h-expr-p arg)))
   (mk-h-app head args))

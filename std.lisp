@@ -32,12 +32,12 @@
         (((:as "->" arr) args body)
          (setf arr-pos (expr-start-pos arr))
          (unless (doseq (arg args) (unless (is-variable arg) (return t)))
-           (return (h-app (h-word "#fn" arr-pos) args body))))
+           (return (h-app (h-word "#fn" arr-pos *top*) args body))))
         ((:seq exprs) (setf arr-pos (expr-start-pos (h-app-head (car exprs))))))
       (let* ((n-pats (test-cases cases))
              (syms (loop :repeat n-pats :for i :from 0 :collect (format nil "#arg~a" i))))
-        (h-app (h-word "#fn" arr-pos) (h-seq (mapcar #'h-word syms))
-               (h-app (h-word "#match" arr-pos) (h-seq (mapcar #'h-word syms)) cases))))))
+        (h-app (h-word "#fn" arr-pos *top*) (h-seq (mapcar #'h-word syms))
+               (h-app (h-word "#match" arr-pos *top*) (h-seq (mapcar #'h-word syms)) cases))))))
   
 (define-macro :value "match"
   ((args cases) (h-app "#match" args cases)))
