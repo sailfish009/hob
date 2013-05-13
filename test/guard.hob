@@ -1,0 +1,10 @@
+# -> 0
+
+def foo: x &if (even x) -> 1
+         _ -> 0
+
+def even: 0 -> $true
+          1 -> $false
+          x -> even (x - 2)
+
+foo 5

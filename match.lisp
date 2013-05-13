@@ -7,7 +7,7 @@
     (("#def" pat val) (values (expand-destructuring-bind pat val) t))
     (t (transform-expr expr #'expand-matches))))
 
-(defstruct br pats bound body)
+(defstruct br pats guard bound body)
 
 (defun h-gensym (name &optional scope)
   (unless scope (setf scope (scope nil)))
@@ -28,6 +28,7 @@
                  (:lit (push (h-app "#assert" pat input) statements))
                  ((head . args)
                   (let ((type (pattern-type pat)))
+                    ;; FIXME do away with test for single-form types
                     (push (h-app "#assert" (h-lit (find-disc type (h-word-name head)))
                                  (h-app "#fld" input (h-lit 0))) statements)
                     (loop :for arg :in args :for i :from 1 :do
@@ -46,10 +47,16 @@
          (scope (scope nil))
          (branches (lmapseq (("->" pats body) cases)
                      (let ((name (h-gensym "body" scope)))
-                       (push (h-app "#def" name
-                                    (h-app "#fn" (flatten-patterns pats)
-                                           (expand-matches body))) defs)
-                       (make-br :pats (seq-list pats) :bound () :body name))))
+                       (multiple-value-bind (pats guard)
+                           (match pats (("#guard" g p) (values p g)) (:_ pats))
+                         (let ((bound (flatten-patterns pats)))
+                           (push (h-app "#def" name
+                                        (h-app "#fn" bound (expand-matches body))) defs)
+                           (when guard
+                             (let ((gname (h-gensym "guard" scope)))
+                               (push (h-app "#def" gname (h-app "#fn" bound guard)) defs)
+                               (setf guard gname)))
+                           (make-br :pats (seq-list pats) :guard guard :bound () :body name))))))
          (val-vars (lmapseq (val vals)
                      (if (h-word-p val)
                          val
@@ -86,6 +93,7 @@
                      br)))
              (add-default (br &optional val)
                (let ((br (make-br :pats (cdr (br-pats br))
+                                  :guard (br-guard br)
                                   :bound (if val (cons val (br-bound br)) (br-bound br))
                                   :body (br-body br))))
                  (push br default)
@@ -94,6 +102,7 @@
                           (cdr cons)))))
              (add-opt (type name br &optional args)
                (let ((br (make-br :pats (if args (append args (cdr (br-pats br))) (cdr (br-pats br)))
+                                  :guard (br-guard br)
                                   :bound (br-bound br)
                                   :body (br-body br))))
                  (let ((found (find-if (lambda (cons) (equal (opt-name (car cons)) name)) sorted)))
@@ -125,9 +134,14 @@
 (defun expand-cases (inputs branches)
   (let ((first (car branches)))
     (unless (br-pats first)
-      (return-from expand-cases
-        (h-app* (br-body first)
-                (or (reverse (br-bound first)) (list (h-word "()" nil *top*)))))))
+      (let* ((args (or (reverse (br-bound first)) (list (h-word "()" nil *top*))))
+             (body (h-app* (br-body first) args)))
+        (when (br-guard first)
+          (setf body (h-app "#match" (h-app* (br-guard first) args)
+                            (h-seq (list (h-app "->" (h-word "$true" nil *top*) body)
+                                         (h-app "->" (h-word "$false" nil *top*)
+                                                (expand-cases inputs (cdr branches))))))))
+        (return-from expand-cases body))))
   (multiple-value-bind (sorted default) (sort-branches branches (car inputs))
     ;; Only condition-less branches, simply continue through
     (unless sorted

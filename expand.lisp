@@ -40,10 +40,15 @@
     (doseq (case cases)
       (match case
         (("->" args :_)
-         (if n-args
-             (unless (= (seq-len args) n-args)
-               (syntax-error args "inconsistent argument count"))
-             (setf n-args (seq-len args))))
+         (let ((len (match args
+                      ((:seq vals) (loop :for i :from 0 :for val :in vals :do
+                                      (match val ("&if" (return i)) (t))
+                                      :finally (return i)))
+                      (t 1))))
+           (if n-args
+               (unless (= len n-args)
+                 (syntax-error args "inconsistent argument count"))
+               (setf n-args len))))
         (t (syntax-error case "expected arrow application"))))
     n-args))
 
@@ -181,8 +186,22 @@
      (h-app* head (loop :for arg :in args :collect (expand-pattern arg env))))
     (:_ (syntax-error expr "invalid pattern"))))
 
+;; FIXME should take two envs, outer and inner
 (defun expand-patterns (expr env)
-   (mapseq (pat expr) (expand-pattern pat env)))
+  (match expr
+    ((:seq pats)
+     (let (test epats)
+       (loop :for cur :on pats :do
+          (match (car cur)
+            ("&if"
+             (unless (and (= (length cur) 2) (not (eq cur pats)))
+               (syntax-error (car cur) "unsyntactic &if in pattern"))
+             (setf test (expand-value (second cur) env))
+             (return))
+            (pat (push (expand-pattern pat env) epats))))
+       (setf epats (h-seq (nreverse epats)))
+       (if test (h-app "#guard" test epats) epats)))
+    (:_ (expand-pattern expr env))))
 
 ;; Type expansion
 

@@ -147,6 +147,9 @@
 (defun typecheck-pat* (pat close)
   (match pat
     (:lit (type-of-lit pat))
+    (("#guard" test pat)
+     (prog1 (typecheck-pat pat close)
+       (unify test (typecheck test) (inst *bool* ()))))
     (:word
      (if (is-variable pat)
          (if (string= (h-word-name pat) "_")
@@ -169,10 +172,10 @@
 
 (defun type-of-lit (expr)
   (etypecase (h-lit-val expr)
-    (integer (inst (prim "Int" 'integer) ()))
-    (number (inst (prim "Float" 'double-float) ()))
-    (character (inst (prim "Char" 'character) ()))
-    (string (inst (prim "String" 'string) ()))))
+    (integer (inst *int* ()))
+    (number (inst *float* ()))
+    (character (inst *char* ()))
+    (string (inst *string* ()))))
 
 (defun resolve (ty)
   (vcase ty

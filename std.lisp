@@ -58,10 +58,13 @@
 ;; Types
 
 (defparameter *int* (prim "Int" 'integer))
+(defparameter *float* (prim "Float" 'double-float))
+(defparameter *char* (prim "Char" 'character))
+(defparameter *string* (prim "String" 'string))
 (bind! *top* :type "Int" :type *int*)
-(bind! *top* :type "Float" :type (prim "Float" 'double-float))
-(bind! *top* :type "Char" :type (prim "Char" 'character))
-(bind! *top* :type "String" :type (prim "String" 'string))
+(bind! *top* :type "Float" :type *float*)
+(bind! *top* :type "Char" :type *char*)
+(bind! *top* :type "String" :type *string*)
 
 ;; Basic arithmetic
 

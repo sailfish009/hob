@@ -37,8 +37,9 @@
 
 (defun bind (scope ns name kind value)
   (let ((known (get-binding scope ns name)))
-    (when (binding-field known kind)
-      (error "Rebinding ~a in binding for ~a (~a)" kind name ns))
+    ;; FIXME reusing variables for pattern guard arguments doesn't work with this
+;    (when (binding-field known kind)
+;      (error "Rebinding ~a in binding for ~a (~a)" kind name ns))
     (push (cons kind value) (binding-fields known)))
   value)
 
