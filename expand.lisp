@@ -56,7 +56,7 @@
   ((pat value)
    (h-app "#def" pat (expand-value value env))
    :outer
-   (h-app "#def" (expand-pattern pat env) value)))
+   (h-app "#def" (expand-pattern pat env env) value)))
 
 (define-special-form "#match" (env)
   ((values cases)
@@ -68,7 +68,7 @@
                     (let ((inner (scope env)))
                       (match cs
                         (((:as "->" h) pats body)
-                         (let ((pats (expand-patterns pats inner)))
+                         (let ((pats (expand-patterns pats env inner)))
                            (h-app h pats (expand-value body inner)))))))))
        (h-app "#match" values cases)))))
 
@@ -173,21 +173,20 @@
       (as-binding expr env :value)))
   expr)
 
-(defun expand-pattern (expr env)
+(defun expand-pattern (expr outer-env inner-env)
   (match expr
     (:word
      (if (is-variable expr)
-         (reg-binding expr env)
-         (expand-value expr env)))
+         (reg-binding expr inner-env)
+         (expand-value expr outer-env)))
     (:lit expr)
     ;; FIXME pattern macros
     (((:as :word head) . args)
-     (setf (h-word-env head) env)
-     (h-app* head (loop :for arg :in args :collect (expand-pattern arg env))))
+     (setf (h-word-env head) outer-env)
+     (h-app* head (loop :for arg :in args :collect (expand-pattern arg outer-env inner-env))))
     (:_ (syntax-error expr "invalid pattern"))))
 
-;; FIXME should take two envs, outer and inner
-(defun expand-patterns (expr env)
+(defun expand-patterns (expr outer-env inner-env)
   (match expr
     ((:seq pats)
      (let (test epats)
@@ -196,12 +195,12 @@
             ("&if"
              (unless (and (= (length cur) 2) (not (eq cur pats)))
                (syntax-error (car cur) "unsyntactic &if in pattern"))
-             (setf test (expand-value (second cur) env))
+             (setf test (expand-value (second cur) inner-env))
              (return))
-            (pat (push (expand-pattern pat env) epats))))
+            (pat (push (expand-pattern pat outer-env inner-env) epats))))
        (setf epats (h-seq (nreverse epats)))
        (if test (h-app "#guard" test epats) epats)))
-    (:_ (expand-pattern expr env))))
+    (:_ (expand-pattern expr outer-env inner-env))))
 
 ;; Type expansion
 
