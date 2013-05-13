@@ -79,6 +79,7 @@
 (defun as-binding (word env ns &optional is-const)
   (get-binding env ns (h-word-name word))
   (setf (h-word-env word) env)
+  (when (is-meta word) (syntax-error word "binding a meta word"))
   (if is-const
       (when (is-variable word) (syntax-error word "using variable name for constant"))
       (unless (is-variable word) (syntax-error word "using constant name for variable")))

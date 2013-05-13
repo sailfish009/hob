@@ -104,6 +104,9 @@
       (equal w "()"))) ;; FIXME other non-alphabetics?
 (defun is-variable (e)
   (and (h-word-p e) (not (is-const (h-word-name e)))))
+(defun is-meta (w)
+  (and (h-word-p w) (eql (schar (h-word-name w) 0) #\&)
+       (not (is-operator (h-word-name w)))))
 
 (defmethod print-object ((e h-lit) out)
   (let ((v (h-lit-val e)))

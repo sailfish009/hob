@@ -1,0 +1,5 @@
+# -> ! binding a meta word
+
+def &something: 10
+
+&something + 4
