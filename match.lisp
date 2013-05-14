@@ -46,17 +46,17 @@
   (let* ((defs ())
          (scope (scope nil))
          (branches (lmapseq (("->" pats body) cases)
-                     (let ((name (h-gensym "body" scope)))
+                     (let ((name (h-gensym "body" scope))
+                           (body (expand-matches body)))
                        (multiple-value-bind (pats guard)
                            (match pats (("#guard" g p) (values p g)) (:_ pats))
-                         (let ((bound (flatten-patterns pats)))
-                           (push (h-app "#def" name
-                                        (h-app "#fn" bound (expand-matches body))) defs)
-                           (when guard
-                             (let ((gname (h-gensym "guard" scope)))
-                               (push (h-app "#def" gname (h-app "#fn" bound guard)) defs)
-                               (setf guard gname)))
-                           (make-br :pats (seq-list pats) :guard guard :bound () :body name))))))
+                         (when guard
+                           (setf body
+                             (h-app "#match" (h-app "#fld" guard (h-lit 0))
+                                    (h-seq (list (h-app "->" (h-lit 1) (h-app (h-word "some" nil *top*) body))
+                                                 (h-app "->" (h-lit 2) (h-word "$none" nil *top*)))))))
+                         (push (h-app "#def" name (h-app "#fn" (flatten-patterns pats) body)) defs)
+                         (make-br :pats (seq-list pats) :guard (and guard t) :bound () :body name)))))
          (val-vars (lmapseq (val vals)
                      (if (h-word-p val)
                          val
@@ -137,10 +137,12 @@
       (let* ((args (or (reverse (br-bound first)) (list (h-word "()" nil *top*))))
              (body (h-app* (br-body first) args)))
         (when (br-guard first)
-          (setf body (h-app "#match" (h-app* (br-guard first) args)
-                            (h-seq (list (h-app "->" (h-word "$true" nil *top*) body)
-                                         (h-app "->" (h-word "$false" nil *top*)
-                                                (expand-cases inputs (cdr branches))))))))
+          (let ((sym (h-gensym "val")))
+            (setf body (h-seq (list
+              (h-app "#def" sym body)
+              (h-app "#match" (h-app "#fld" sym (h-lit 0))
+                     (h-seq (list (h-app "->" (h-lit 1) (h-app "#fld" sym (h-lit 1)))
+                                  (h-app "->" (h-lit 2) (expand-cases inputs (cdr branches)))))))))))
         (return-from expand-cases body))))
   (multiple-value-bind (sorted default) (sort-branches branches (car inputs))
     ;; Only condition-less branches, simply continue through

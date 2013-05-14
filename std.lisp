@@ -113,3 +113,19 @@
              (funcall (compile-s-expr `(lambda ,syms (vector 1 ,@syms))))))))
 
 (loop :for a :from 2 :below 10 :do (declare-tuple a))
+
+;; Option type
+
+(defparameter *option*
+  (let* ((var (list (mkvar)))
+         (cx (gensym))
+         (*type-cx* (cons cx *type-cx*))
+         (type (data "Option" var (list "Some" "None")))
+         (ctor (tclose cx (fun var (inst type var)))))
+    (bind! *top* :type "Option" :type type)
+    (bind! *top* :value "some" :type ctor)
+    (bind! *top* :value "some" :value (lambda (a) (vector 1 a)))
+    (bind! *top* :pattern "some" :form (tform type var ctor))
+    (bind! *top* :value "$none" :type (tclose cx (inst type (list var))))
+    (bind! *top* :value "$none" :value (vector 2))
+    type))
