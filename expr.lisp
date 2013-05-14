@@ -31,6 +31,7 @@
 
 (defstruct (h-app (:include h-expr) (:constructor mk-h-app (head args))) head args)
 (defun h-app* (head args)
+  (assert args)
   (if (stringp head)
       (setf head (h-word head (and *expanding* (expr-start-pos *expanding*))
                          (when (eql (schar head 0) #\#) *top*)))

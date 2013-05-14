@@ -45,11 +45,13 @@
 (defun expand-match (vals cases)
   (let* ((defs ())
          (scope (scope nil))
+         (n-pats)
          (branches (lmapseq (("->" pats body) cases)
                      (let ((name (h-gensym "body" scope))
                            (body (expand-matches body)))
                        (multiple-value-bind (pats guard)
                            (match pats (("#guard" g p) (values p g)) (:_ pats))
+                         (unless n-pats (setf n-pats (seq-len pats)))
                          (when guard
                            (setf body
                              (h-app "#match" (h-app "#fld" guard (h-lit 0))
@@ -62,7 +64,10 @@
                          val
                          (let ((name (h-gensym "val" scope)))
                            (push (h-app "#def" name val) defs)
-                           name)))))
+                           name))))
+         (fallthrough (make-br :pats (loop :repeat n-pats :collect (h-word "_")) :guard nil :bound ()
+                               :body (h-app "#assert" (h-word "()" nil *top*)))))
+    (setf (cdr (last branches)) (list fallthrough))
     (push (expand-cases val-vars branches) defs)
     (h-seq (nreverse defs))))
 
@@ -131,6 +136,11 @@
 
     (t name)))
 
+(defun count-forms (type)
+  (vcase type
+    ((data forms) (length forms))
+    (t most-positive-fixnum)))
+
 (defun expand-cases (inputs branches)
   (let ((first (car branches)))
     (unless (br-pats first)
@@ -158,7 +168,7 @@
                                          (expand-data-match opt (car inputs) (cdr inputs) branches)
                                          (expand-cases (cdr inputs) branches))))
                             (h-app "->" (h-lit (opt-disc opt)) sub)))))
-            (when default
+            (when (and default (< (length sorted) (count-forms type)))
               (let ((ft (h-app "->" (h-word "_") (expand-cases (cdr inputs) default))))
                 (setf cases (nconc cases (list ft)))))
             (h-app "#match" val (h-seq cases)))))))
