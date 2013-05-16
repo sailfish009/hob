@@ -1,6 +1,13 @@
-# -> 6
+# -> 66
 
 var x: 1
 var (y, z): (2, 3)
 
-x * (y * z)
+def before: x * (y * z)
+
+x <- 4
+y <- 5
+
+def after: x * (y * z)
+
+before + after

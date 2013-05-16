@@ -64,6 +64,10 @@
    :outer
    (h-app "#var" (expand-pattern pat env env) value)))
 
+(define-special-form "#assign" (env)
+  (((:as :word place) val)
+   (h-app "#assign" (expand-value place env) (expand-value val env))))
+
 (define-special-form "#match" (env)
   ((values cases)
    (let ((n-cases (test-cases cases))

@@ -58,6 +58,9 @@
 (define-macro :value "data"
   ((name variants) (h-app "#data" name variants)))
 
+(define-macro :value "<-"
+  ((place val) (h-app "#assign" place val)))
+
 ;; Types
 
 (defparameter *int* (prim "Int" 'integer))
