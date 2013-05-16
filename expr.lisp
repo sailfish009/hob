@@ -193,6 +193,7 @@
            (:as (push (third pat) *pat-bound*)
                 `(progn (setf ,(third pat) ,in)
                         ,(compile-match-pat (second pat) in)))
+           (:or `(or ,@(loop :for pat :in (cdr pat) :collect (compile-match-pat pat in))))
            (:word (push (second pat) *pat-bound*)
                   `(when (h-word-p ,in)
                      (setf ,(second pat) (h-word-name ,in))

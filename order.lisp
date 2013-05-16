@@ -17,7 +17,7 @@
   (let (all-defs defs)
     (loop :for form :in forms :do
        (match form
-         (("#def" name val)
+         (((:or "#def" "#var") name val)
           (let ((b (word-binding name)))
             (push (match val
                     (("#fn" . :_) (list b :function val :todo))
@@ -27,7 +27,7 @@
       (setf defs (reverse all-defs))
       (loop :for form :in forms :do
          (match form
-           (("#def" :_ e)
+           (((:or "#def" "#var") :_ e)
             (match e
               (("#fn" . :_))
               (t (verify-not-using defs all-defs e)))

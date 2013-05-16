@@ -35,7 +35,7 @@
   (let (vars top body)
     (dolist (expr exprs)
       (match expr
-        (("#def" name :_)
+        (((:or "#def" "#var") name :_)
          (push (bind-word name :value :value (as-var name)) vars))
         (("#data" :_ variants)
          (loop :for variant :in (seq-list variants) :for i :from 1 :do
@@ -50,7 +50,7 @@
         (t)))
     (dolist (expr exprs)
       (match expr
-        (("#def" name val)
+        (((:or "#def" "#var") name val)
          (let ((set `(setf ,(as-var name) ,(hcompile val))))
            (if (match val (("#fn" . :_) t) (t nil)) (push set top) (push set body))))
         (("#data" . :_))

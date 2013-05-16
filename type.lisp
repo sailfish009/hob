@@ -77,6 +77,7 @@
                              (let ((v (mkvar))) (bind-word arg :type :type (tparam v)) v))))
              (bind-word name :type :type (data (h-word-name name) argvars nil)))))
         (("#def" pat :_) (push (typecheck-pat pat t) def-types))
+        (("#var" pat :_) (push (typecheck-pat pat t t) def-types))
         (t)))
     (dolist (expr exprs)
       (match expr
@@ -99,14 +100,13 @@
     (setf def-types (nreverse def-types))
     (dolist (expr exprs)
       (match expr
-        (("#def" :_ val)
+        (((:or "#def" "#var") :_ val)
          (unify val (pop def-types) (typecheck val)))
         (t))))
   (let (last)
     (dolist (expr exprs)
       (match expr
-        (("#def" . :_))
-        (("#data" . :_))
+        (((:or "#def" "#var" "#data") . :_))
         (t (setf last (typecheck expr)))))
     last))
 
@@ -139,22 +139,23 @@
          (t found))))
     (:lit (type-of-lit expr))))
 
-(defun typecheck-pat (pat &optional close)
-  (let ((type (typecheck-pat* pat close)))
+(defun typecheck-pat (pat &optional close mut)
+  (let ((type (typecheck-pat* pat close mut)))
     (when *context* (setf (gethash pat (context-pat-types *context*)) type))
     type))
 
-(defun typecheck-pat* (pat close)
+(defun typecheck-pat* (pat close mut)
   (match pat
     (:lit (type-of-lit pat))
     (("#guard" test pat)
-     (prog1 (typecheck-pat pat close)
+     (prog1 (typecheck-pat pat close mut)
        (unify test (typecheck test) (inst *bool* ()))))
     (:word
      (if (is-variable pat)
          (if (string= (h-word-name pat) "_")
              (mkvar)
              (let ((v (mkvar)))
+               (when mut (bind-word pat :value :mut t))
                (bind-word pat :value :type (if close (tclose (car *type-cx*) v) v))
                v))
          (typecheck pat)))
@@ -164,7 +165,7 @@
            (result (mkvar)))
        (unless (= (length args) (length (tform-args found)))
          (hob-type-error pat "wrong number of arguments for `~a` (expected ~a)" head (length (tform-args found))))
-       (unify pat (fun (loop :for arg :in args :collect (typecheck-pat arg close)) result)
+       (unify pat (fun (loop :for arg :in args :collect (typecheck-pat arg close mut)) result)
               (vcase (tform-templ found)
                 ((tclose cx type) (instantiate type (instance cx)))
                 (t (tform-templ found))))

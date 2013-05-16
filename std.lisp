@@ -18,6 +18,9 @@
 (define-macro :value "def"
   ((pat value) (h-app "#def" pat value)))
 
+(define-macro :value "var"
+  ((pat value) (h-app "#var" pat value)))
+
 (define-macro :value "if"
   ((test then else) (h-app "#match" test
                            (h-seq (list (h-app "->" (h-word "$true") then)

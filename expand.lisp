@@ -58,6 +58,12 @@
    :outer
    (h-app "#def" (expand-pattern pat env env) value)))
 
+(define-special-form "#var" (env)
+  ((pat value)
+   (h-app "#var" pat (expand-value value env))
+   :outer
+   (h-app "#var" (expand-pattern pat env env) value)))
+
 (define-special-form "#match" (env)
   ((values cases)
    (let ((n-cases (test-cases cases))

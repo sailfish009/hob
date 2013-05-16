@@ -3,8 +3,8 @@
 (defun expand-matches (expr)
   (match expr
     (("#match" vals cases) (expand-match vals cases))
-    (("#def" :word :_) (transform-expr expr #'expand-matches))
-    (("#def" pat val) (values (expand-destructuring-bind pat val) t))
+    (((:or "#def" "#var") :word :_) (transform-expr expr #'expand-matches))
+    (((:as (:or "#def" "#var") head) pat val) (values (expand-destructuring-bind head pat val) t))
     (t (transform-expr expr #'expand-matches))))
 
 (defstruct br pats guard bound body)
@@ -15,7 +15,7 @@
     (get-binding scope :value name)
     (h-word name nil scope)))
 
-(defun expand-destructuring-bind (pat val)
+(defun expand-destructuring-bind (head pat val)
   (let ((scope (scope nil))
         (statements ()))
     (labels ((explore (pat input)
@@ -24,7 +24,7 @@
                   (cond ((is-const nm)
                          (push (h-app "#assert" pat input) statements))
                         ((not (equal nm "_"))
-                         (push (h-app "#def" pat input) statements))))
+                         (push (h-app head pat input) statements))))
                  (:lit (push (h-app "#assert" pat input) statements))
                  ((head . args)
                   (let ((type (pattern-type pat)))
