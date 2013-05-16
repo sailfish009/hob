@@ -28,9 +28,9 @@
                  (:lit (push (h-app "#assert" pat input) statements))
                  ((head . args)
                   (let ((type (pattern-type pat)))
-                    ;; FIXME do away with test for single-form types
-                    (push (h-app "#assert" (h-lit (find-disc type (h-word-name head)))
-                                 (h-app "#fld" input (h-lit 0))) statements)
+                    (unless (= (count-forms type) 1)
+                      (push (h-app "#assert" (h-lit (find-disc type (h-word-name head)))
+                                   (h-app "#fld" input (h-lit 0))) statements))
                     (loop :for arg :in args :for i :from 1 :do
                        (let ((sym (h-gensym "val" scope)))
                          (push (h-app "#def" sym (h-app "#fld" input (h-lit i))) statements)
