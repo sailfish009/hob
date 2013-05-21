@@ -28,7 +28,7 @@
 
 (defun token-id* (type val)
   (ecase type
-    ((:op :punc) (string val))
+    ((:op :punc) val)
     (:string (with-output-to-string (out) (write-escaped-string val out)))
     (:eof "EOF")
     (:num (format nil "~d" val))
@@ -116,14 +116,14 @@
           ((eql ch #\`) (values :word (read-string in #\`)))
           ((eql ch #\:)
            (cond ((eql (cur-ch in) #\:) (next in) (values :op "::"))
-                 (t (values :punc #\:))))
+                 (t (values :punc ":"))))
           ((eql ch #\.)
            (let* ((after (and (digit-char-p (cur-ch in)) (read-word in ch)))
                   (num (and after (parse-number after))))
              (if num
                  (values :num num)
-                 (progn (setf (tstream-pos in) (1+ start)) (values :punc #\.)))))
-          ((find ch *punctuation-chars*) (values :punc ch))
+                 (progn (setf (tstream-pos in) (1+ start)) (values :punc ".")))))
+          ((find ch *punctuation-chars*) (values :punc (string ch)))
           ((is-word-char ch)
            (let ((word (read-word in ch)) num)
              (if (and (eql (cur-ch in) #\.) (cl-ppcre:scan *num-start* word))
