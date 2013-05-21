@@ -133,6 +133,8 @@
                    (unless num (setf (tstream-pos in) end)))
                  (setf num (parse-number word)))
              (cond (num (values :num num))
+                   ((eql (cur-ch in) #\[) (next in) (values :punc (concatenate 'string word "[")))
+                   ((eql (cur-ch in) #\{) (next in) (values :punc (concatenate 'string word "{")))
                    ((is-arrow word) (values :punc word))
                    ((is-operator word) (values :op word))
                    (t (values :word word)))))

@@ -138,11 +138,9 @@
          (rest (loop :while (eat in :punc ";" margin) :collect (parse-block in))))
     (if rest (h-seq (cons head rest)) head)))
 
-(defmacro scase (val &body clauses)
-  (let ((v (gensym)))
-    `(let ((,v ,val))
-       (cond ,@(loop :for (pat . body) :in clauses :collect
-                  (if (eq pat t) `(t ,@body) `((equal ,v ,pat) ,@body)))))))
+(defun ends-with (str suffix)
+  (let ((start (- (length str) (length suffix))))
+    (and (>= start 0) (search suffix str :start2 start))))
 
 (defun parse-base-expr (in)
   (case (token-type in)
@@ -150,9 +148,10 @@
     (:word (prog1 (token-word in) (next-token in)))
     (:punc 
      (let ((start-line (tstream-tok-start-line in))
-           (start-col (tstream-tok-start-col in)))
-       (scase (token-value in)
-         ("(" (in-brackets in ")"
+           (start-col (tstream-tok-start-col in))
+           (val (token-value in)))
+       (cond ((string= val "(")
+              (in-brackets in ")"
                 (cond ((tok= in :punc ")")
                        (h-word "()" (token-pos in start-line start-col)))
                       ((tok= in :op)
@@ -162,15 +161,17 @@
                              op
                              (parse-app-expr in op 0 t))))
                       (t (bracketed-block in)))))
-         ("{" (in-brackets in "}"
-                (if (tok= in :punc "}")
-                    (h-app (h-word "{}" (token-pos in start-line start-col)))
-                    (h-app (h-word "{}" (token-pos in start-line start-col start-line (1+ start-col)))
-                           (bracketed-block in)))))
-         ("[" (in-brackets in "]"
-                (if (tok= in :punc "]")
-                    (h-app (h-word "[]" (token-pos in start-line start-col)))
-                    (h-app (h-word "[]" (token-pos in start-line start-col start-line (1+ start-col)))
-                           (bracketed-block in)))))
-         (t (unexpected in)))))
+             ((ends-with val "{")
+              (in-brackets in "}"
+                (let ((name (h-word (concatenate 'string val "}") (token-pos in start-line start-col))))
+                  (if (tok= in :punc "}")
+                      name
+                      (h-app name (bracketed-block in))))))
+             ((ends-with val "[")
+              (in-brackets in "]"
+                (let ((name (h-word (concatenate 'string val "]") (token-pos in start-line start-col))))
+                  (if (tok= in :punc "]")
+                      name
+                      (h-app name (bracketed-block in))))))
+             (t (unexpected in)))))
      (t (unexpected in))))
