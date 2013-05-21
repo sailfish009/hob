@@ -1,6 +1,6 @@
 # -> 1
 
-data Bool: $true; $false
+data Bool: ($true; $false)
 
 def (&&): $false _ -> $false
           _ x -> x

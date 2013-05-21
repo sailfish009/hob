@@ -42,6 +42,9 @@
       (explore pat val)
       (nreverse statements))))
 
+;; FIXME only wrap bodies in functions when actually necessary (delay
+;; decision, refcount)
+
 (defun expand-match (vals cases)
   (let* ((defs ())
          (scope (scope nil))

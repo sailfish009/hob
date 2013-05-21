@@ -1,6 +1,7 @@
 # -> 5003
 
-data List: cons Int List; $nil
+data List: cons Int List
+           $nil
 
 def third: 1 (cons _ (cons 2 (cons x _))) -> x
            1 (cons _ (cons 1 (cons x _))) -> 1000 + x

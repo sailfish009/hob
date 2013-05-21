@@ -3,7 +3,7 @@
 def adder: x -> y -> x + y
 def double-adder: a b -> c -> c + (a + b)
 
-let (plus2 = adder 2
-     plus3 = double-adder 1 2):
+let: plus2 = (adder 2)
+     plus3 = (double-adder 1 2)
 
   (plus2 4) + (plus3 5)

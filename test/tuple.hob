@@ -1,6 +1,6 @@
 # -> 4
 
-data (List a): cons a (List a); $nil
+data (List a): (cons a (List a); $nil)
 
 def fst: (a, _) -> a
 def car: (cons a _) -> a

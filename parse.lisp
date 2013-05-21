@@ -22,7 +22,8 @@
   (and (tstream-tok-new-line in) (< (tstream-tok-start-col in) margin)))
 
 (defun must-be-indented (in &optional atleast)
-  (when (and (tstream-tok-new-line in) (< (tstream-tok-start-col in) (if atleast (indent in) (1+ (indent in)))))
+  (when (and (tstream-tok-new-line in)
+             (< (tstream-tok-start-col in) (if atleast (indent in) (1+ (indent in)))))
     (hob-token-error in "token ~a is not indented enough" (token-id in))))
   
 (defun ends (in margin)
@@ -56,18 +57,12 @@
   (h-word (string (token-value in)) (token-pos in)))
 
 (defun parse-block (in)
+  (push (indent in) (tstream-indentation-stack in))
   (let* ((margin (margin in))
          (first (parse-tup-expr in (1+ margin))))
-      (if (eat in :punc #\; margin)
-          (progn
-            (must-be-indented in t)
-            (prog1 (h-seq (cons first (loop :collect (parse-tup-expr in (1+ margin))
-                                         :while (eat in :punc #\; margin))))
-              (unless (ends in margin) (hob-token-error in "mixing semicolons and indentation in block"))))
-          (let ((rest (loop :until (ends in margin) :collect (parse-tup-expr in (1+ margin)))))
-            (if rest
-                (h-seq (cons first rest))
-                first)))))
+    (let ((rest (loop :until (ends in margin) :collect (parse-tup-expr in (1+ margin)))))
+      (setf (tstream-indentation in) (pop (tstream-indentation-stack in)))
+      (if rest (h-seq (cons first rest)) first))))
 
 (defun parse-tup-expr (in margin)
   (let ((first (parse-op-expr in margin)))
@@ -126,15 +121,22 @@
                 (setf expr (h-app dot expr (parse-base-expr in)))))
              (t (return expr))))))
 
+(defun in-brackets* (in close body)
+  (push (indent in) (tstream-indentation-stack in))
+  (next-token in)
+  (must-be-indented in)
+  (prog1 (funcall body)
+    (setf (tstream-indentation in) (pop (tstream-indentation-stack in)))
+    (expect in :punc close (indent in))))
+
 (defmacro in-brackets (in close &body body)
-  (let ((i (gensym)))
-    `(let ((,i ,in))
-       (push (indent ,i) (tstream-indentation-stack ,i))
-       (next-token ,i)
-       (must-be-indented ,i)
-       (prog1 (progn ,@body)
-         (setf (tstream-indentation ,i) (pop (tstream-indentation-stack ,i)))
-         (expect ,i :punc ,close (indent ,i))))))
+  `(in-brackets* ,in ,close (lambda () ,@body)))
+
+(defun bracketed-block (in)
+  (let* ((margin (margin in))
+         (head (parse-block in))
+         (rest (loop :while (eat in :punc #\; margin) :collect (parse-block in))))
+    (if rest (h-seq (cons head rest)) head)))
 
 (defun parse-base-expr (in)
   (case (token-type in)
@@ -153,16 +155,16 @@
                          (if (tok= in :punc #\))
                              op
                              (parse-app-expr in op 0 t))))
-                      (t (parse-block in)))))
+                      (t (bracketed-block in)))))
          (#\{ (in-brackets in #\}
                 (if (tok= in :punc #\})
                     (h-app (h-word "{}" (token-pos in start-line start-col)))
                     (h-app (h-word "{}" (token-pos in start-line start-col start-line (1+ start-col)))
-                           (parse-block in)))))
+                           (bracketed-block in)))))
          (#\[ (in-brackets in #\]
                 (if (tok= in :punc #\])
                     (h-app (h-word "[]" (token-pos in start-line start-col)))
                     (h-app (h-word "[]" (token-pos in start-line start-col start-line (1+ start-col)))
-                           (parse-block in)))))
+                           (bracketed-block in)))))
          (t (unexpected in)))))
      (t (unexpected in))))
