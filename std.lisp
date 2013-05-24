@@ -8,7 +8,10 @@
             (lambda (,a)
               (let ((*expanding* ,a))
                 (match* (h-app-args ,a) ,@clauses
-                        (t (syntax-error (h-app-head ,a) "Bad arguments to ~a" ,name))))))))
+                        (t 
+                         (locally
+                             #+sbcl(declare (sb-ext:muffle-conditions sb-ext:compiler-note))
+                             (syntax-error (h-app-head ,a) "Bad arguments to ~a" ,name)))))))))
 
 (defmacro define-seq-macro (name (arg) &body body)
   `(bind! *top* :value ,name :seq-macro (lambda (,arg) ,@body)))
@@ -61,6 +64,10 @@
 (define-macro :value "<-"
   ((place val) (h-app "#assign" place val)))
 
+(define-macro :value "!" ((f) (h-app f)))
+
+(define-macro :value "seq" (args (h-seq args)))
+
 ;; Types
 
 (defparameter *int* (prim "Int" 'integer))
@@ -88,10 +95,10 @@
 
 ;; Unit type
 
-(defparameter *unit* (data "()" () (list "()")))
-(bind! *top* :type "()" :type *unit*)
-(bind! *top* :value "()" :type (inst *unit* ()))
-(bind! *top* :value "()" :value (vector 1))
+(defparameter *unit* (data "_" () (list "$_")))
+(bind! *top* :type "_" :type *unit*)
+(bind! *top* :value "$_" :type (inst *unit* ()))
+(bind! *top* :value "$_" :value (vector 1))
 
 ;; Booleans
 

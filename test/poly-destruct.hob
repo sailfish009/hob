@@ -1,9 +1,9 @@
 # -> 9
 
 def (id, const):
-  (a -> a), (a -> () -> a)
+  (a -> a), (a -> -> a)
 
 id "foo"
 const "bar"
 
-(id 4) + ((const 5) ())
+(id 4) + ((const 5) !)

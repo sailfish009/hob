@@ -145,6 +145,7 @@
            (funcall (cdr special) env expr)
            (h-app* (expand-value head env) (loop :for arg :in rest :collect (expand-value arg env))))))
     ((:seq elts)
+     (unless elts (return-from expand-value-inner expr))
      (let ((can-expand (match (car elts)
                          (((:word name) . :_) (lookup env :value name :seq-macro))
                          (:_ nil))))
@@ -208,7 +209,7 @@
              (setf test (expand-value (second cur) inner-env))
              (return))
             (pat (push (expand-pattern pat outer-env inner-env) epats))))
-       (setf epats (h-seq (nreverse epats)))
+       (setf epats (if (cdr epats) (h-seq (nreverse epats)) (car epats)))
        (if test (h-app "#guard" test epats) epats)))
     (:_ (expand-pattern expr outer-env inner-env))))
 

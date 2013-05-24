@@ -4,7 +4,7 @@ def foo: a b ->
   if a (bar $false "x") (bar $true b)
 def bar: a b -> foo a b
 
-def diverge: () ->
+def diverge: ->
   foo $true 10
   foo $false 1.3
 

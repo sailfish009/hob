@@ -12,7 +12,7 @@
   (match expr
     (:lit (h-lit-val expr))
     (:word (lookup-word expr :value :value))
-    ((:seq exprs) (hcompile-seq exprs))
+    ((:seq exprs) (and exprs (hcompile-seq exprs)))
     (("#fn" args body)
      (let ((arg-syms (lmapseq (arg args)
                        (if (equal (h-word-name arg) "_")

@@ -112,7 +112,7 @@
 
 (defun typecheck (expr)
   (match expr
-    ((:seq forms) (typecheck-seq forms))
+    ((:seq forms) (if forms (typecheck-seq forms) (inst *unit* ())))
     (("#fn" args body)
      (let ((args (lmapseq (arg args)
                    (bind-word arg :value :type (mkvar)))))

@@ -1,8 +1,8 @@
 # -> ! before it is defined
 
-def foo: () -> bar
+def foo: -> bar
 
-foo ()
+foo !
 
 # FIXME this will no longer hold when the compiler becomes smart about
 # constant expressions

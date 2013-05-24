@@ -21,17 +21,13 @@
 
 (defstruct (h-seq (:include h-expr) (:constructor mk-h-seq (vals &optional pos))) vals)
 (defun h-seq (vals)
-  (assert vals)
   (dolist (val vals) (assert (h-expr-p val)))
-  (if (or (not vals) (cdr vals))
-      (mk-h-seq vals)
-      (car vals)))
+  (mk-h-seq vals))
 
 (defvar *expanding* nil)
 
 (defstruct (h-app (:include h-expr) (:constructor mk-h-app (head args))) head args)
 (defun h-app* (head args)
-  (assert args)
   (if (stringp head)
       (setf head (h-word head (and *expanding* (expr-start-pos *expanding*))
                          (when (eql (schar head 0) #\#) *top*)))
@@ -101,8 +97,7 @@
                (,b ,s)))))))
 
 (defun is-const (w)
-  (or (char= (schar w 0) #\$)
-      (equal w "()"))) ;; FIXME other non-alphabetics?
+  (char= (schar w 0) #\$))
 (defun is-variable (e)
   (and (h-word-p e) (not (is-const (h-word-name e)))))
 (defun is-meta (w)
@@ -232,7 +227,9 @@
                          (test (compile-match-pat pat v)))
                     `(let ,*pat-bound*
                        (when ,test (return-from match (progn ,@body))))))
-         (error "Non-exhaustive pattern")))))
+         (locally
+             #+sbcl(declare (sb-ext:muffle-conditions sb-ext:compiler-note))
+             (error "Non-exhaustive pattern"))))))
 
 (defmacro match* (values &body clauses)
   (let ((v (gensym)))
@@ -244,4 +241,13 @@
                      (test (compile-match-pats pats v)))
                 `(let ,*pat-bound*
                    (when ,test (return-from match* (progn ,@body))))))
-         (error "Non-exhaustive pattern")))))
+         (locally
+             #+sbcl(declare (sb-ext:muffle-conditions sb-ext:compiler-note))
+             (error "Non-exhaustive pattern"))))))
+
+(defun testest ()
+  (if t
+      1
+      (locally
+          (declare (sb-ext:muffle-conditions sb-ext:compiler-note))
+        (error "lots of noise"))))

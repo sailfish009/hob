@@ -85,8 +85,12 @@
         (if (tok= in :op)
             (let* ((op (token-word in))
                    (rest (loop :while (eat in :op (h-word-name op) margin)
-                            :do (when (ends in margin) (hob-token-error in "unfinished operator application"))
-                            :collect (parse-subscript-expr in))))
+                            :do (when (ends in margin)
+                                  (if exprs
+                                      (hob-token-error in "unfinished operator application")
+                                      (return)))
+                            :collect (parse-subscript-expr in) :into exprs
+                            :finally (return exprs))))
               (unless (ends in margin) (hob-token-error in "unexpected continuation after operator application"))
               (h-app* op (cons head rest)))
             (parse-app-expr in head margin)))))
@@ -153,7 +157,7 @@
        (cond ((string= val "(")
               (in-brackets in ")"
                 (cond ((tok= in :punc ")")
-                       (h-word "()" (token-pos in start-line start-col)))
+                       (h-seq ()))
                       ((tok= in :op)
                        (let ((op (token-word in)))
                          (next-token in)
@@ -173,5 +177,9 @@
                   (if (tok= in :punc "]")
                       name
                       (h-app name (bracketed-block in))))))
+             ((is-arrow val)
+              (h-app (h-word val (token-pos in start-line start-col))
+                     (h-seq ())
+                     (progn (next-token in) (parse-block in))))
              (t (unexpected in)))))
      (t (unexpected in))))
