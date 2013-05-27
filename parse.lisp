@@ -139,10 +139,12 @@
   `(in-brackets* ,in ,close (lambda () ,@body)))
 
 (defun bracketed-block (in)
-  (let* ((margin (margin in))
-         (head (parse-block in))
-         (rest (loop :while (eat in :punc ";" margin) :collect (parse-block in))))
-    (if rest (h-seq (cons head rest)) head)))
+  (let ((margin (margin in)))
+    (if (ends in margin nil)
+        (h-nil)
+        (let ((head (parse-block in))
+              (rest (loop :while (eat in :punc ";" margin) :collect (parse-block in))))
+          (if rest (h-seq (cons head rest)) head)))))
 
 (defun ends-with (str suffix)
   (let ((start (- (length str) (length suffix))))
@@ -158,9 +160,7 @@
            (val (token-value in)))
        (cond ((string= val "(")
               (in-brackets in ")"
-                (cond ((tok= in :punc ")")
-                       (h-nil))
-                      ((tok= in :op)
+                (cond ((tok= in :op)
                        (let ((op (token-word in)))
                          (next-token in)
                          (if (tok= in :punc ")")
@@ -170,15 +170,11 @@
              ((ends-with val "{")
               (in-brackets in "}"
                 (let ((name (h-word (concatenate 'string val "}") (token-pos in start-line start-col))))
-                  (if (tok= in :punc "}")
-                      name
-                      (h-app name (bracketed-block in))))))
+                  (h-app name (bracketed-block in)))))
              ((ends-with val "[")
               (in-brackets in "]"
                 (let ((name (h-word (concatenate 'string val "]") (token-pos in start-line start-col))))
-                  (if (tok= in :punc "]")
-                      name
-                      (h-app name (bracketed-block in))))))
+                  (h-app name (bracketed-block in)))))
              ((is-arrow val)
               (h-app (h-word val (token-pos in start-line start-col))
                      (h-nil)
