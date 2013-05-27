@@ -120,8 +120,6 @@
 (define-macro :value "<-"
   ((place val) (h-app "#assign" place val)))
 
-(define-macro :value "!" ((f) (h-app f)))
-
 (define-macro :value "seq" (args (h-seq args)))
 
 (define-macro :type "->"

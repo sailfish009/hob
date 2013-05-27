@@ -6,4 +6,4 @@ def (id, const):
 id "foo"
 const "bar"
 
-(id 4) + ((const 5) !)
+(id 4) + ((const 5):)

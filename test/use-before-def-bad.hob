@@ -2,7 +2,7 @@
 
 def foo: -> bar
 
-foo !
+foo:
 
 # FIXME this will no longer hold when the compiler becomes smart about
 # constant expressions

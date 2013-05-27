@@ -26,10 +26,10 @@
              (< (tstream-tok-start-col in) (if atleast (indent in) (1+ (indent in)))))
     (hob-token-error in "token ~a is not indented enough" (token-id in))))
   
-(defun ends (in margin)
+(defun ends (in margin &optional (count-arrow t))
   (or (tok= in :eof)
       (and (tok= in :punc) (or (search (token-value in) ")]};,")
-                               (is-arrow (token-value in))))
+                               (and count-arrow (is-arrow (token-value in)))))
       (outdents in margin)))
 
 (defun expect (in type &optional val margin)
@@ -96,13 +96,15 @@
             (parse-app-expr in head margin)))))
 
 (defun parse-app-expr (in head margin &optional no-arrow)
-  (let ((tail (loop :with blocks := nil :for i :from 0 :until (ends in margin)
-                 :do (when (and (not blocks) (eat in :punc ":" margin)) (setf blocks t))
-                 :collect (if blocks
-                              (progn (must-be-indented in) (parse-block in))
-                              (parse-subscript-expr in))))
-        (val (token-value in)))
+  (let* ((blocks nil)
+         (tail (loop :for i :from 0 :until (ends in margin) :do 
+                  (when (and (not blocks) (eat in :punc ":" margin)) (setf blocks t) (when (ends in margin nil) (return)))
+                  :collect (if blocks
+                               (progn (must-be-indented in) (parse-block in))
+                               (parse-subscript-expr in))))
+         (val (token-value in)))
     (cond ((and (not no-arrow)
+                (not blocks)
                 (tok= in :punc)
                 (is-arrow val)
                 (not (outdents in margin)))
@@ -112,7 +114,7 @@
              (h-app arrow
                     (if tail (h-seq (cons head tail)) head)
                     (parse-block in))))
-          (tail (h-app* head tail))
+          ((or tail blocks) (h-app* head tail))
           (t head))))
 
 (defun parse-subscript-expr (in)
