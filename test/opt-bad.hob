@@ -1,0 +1,7 @@
+# -> ! failed to unify types (Int Int  -> a) and (Int  -> a)
+
+def x: a &opt (b = 10) -> a + b
+
+def use: f -> (f 1) + (f 1 2)
+
+use x

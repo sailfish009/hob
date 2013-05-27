@@ -23,6 +23,8 @@
 (defun h-seq (vals)
   (dolist (val vals) (assert (h-expr-p val)))
   (mk-h-seq vals))
+(defun h-nil ()
+  (mk-h-seq ()))
 
 (defvar *expanding* nil)
 
@@ -174,6 +176,7 @@
 (defun compile-match-pat (pat in)
   (cond ((or (eq pat :_) (eq pat t)) t)
         ((eq pat :word) `(h-word-p ,in))
+        ((eq pat :nil) `(and (h-seq-p ,in) (not (h-seq-vals ,in))))
         ((eq pat :lit) `(h-lit-p ,in))
         ((eq pat :seq) `(h-seq-p ,in))
         ((stringp pat) `(and (h-word-p ,in) (equal (h-word-name ,in) ,pat)))

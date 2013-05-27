@@ -1,0 +1,10 @@
+# -> 18
+
+def foo: a &opt (b = 10) -> a + b
+
+def count: &rest a -> length a
+
+def length: $nil -> 0
+            (cons _ rest) -> 1 + (length rest)
+
+(foo 1) + ((foo 2 2) + (count 1 2 3))

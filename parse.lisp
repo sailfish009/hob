@@ -157,7 +157,7 @@
        (cond ((string= val "(")
               (in-brackets in ")"
                 (cond ((tok= in :punc ")")
-                       (h-seq ()))
+                       (h-nil))
                       ((tok= in :op)
                        (let ((op (token-word in)))
                          (next-token in)
@@ -179,7 +179,7 @@
                       (h-app name (bracketed-block in))))))
              ((is-arrow val)
               (h-app (h-word val (token-pos in start-line start-col))
-                     (h-seq ())
+                     (h-nil)
                      (progn (next-token in) (parse-block in))))
              (t (unexpected in)))))
      (t (unexpected in))))

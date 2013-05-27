@@ -10,12 +10,20 @@
   (tparam val))
 
 (variant type-expr
-  (fun args result)
+  (fun req-args opt-args rest-arg result cx count)
   (tvar cx instances ref)
   (inst type args)
   (tclose cx type))
 
 (defstruct (tform (:constructor tform (type args templ))) type args templ)
+
+(defvar *type-cx* nil)
+
+(defun mkvar () (tvar *type-cx* nil nil))
+
+(defun mkfun (req-args result &optional opt-args rest-arg count)
+  (fun req-args opt-args rest-arg result *type-cx*
+       (or count (and (or opt-args rest-arg) (cons nil nil)))))
 
 (defun parse-type (expr)
   (match expr
@@ -28,8 +36,11 @@
           (when args (hob-type-error expr "type `~a` takes type parameters" expr))
           (inst found ()))
          ((tparam val) val))))
-    (("->" args ret)
-     (fun (mapseq (a args) (parse-type a)) (parse-type ret)))
+    (("#fn" req-args opt-args rest-arg ret)
+     (mkfun (mapcar #'parse-type (h-seq-vals req-args))
+            (parse-type ret)
+            (mapcar #'parse-type (h-seq-vals opt-args))
+            (unless (h-seq-p rest-arg) (parse-type rest-arg))))
     (((:as :word head) . targs)
      (let ((found (or (lookup-word head :type :type)
                       (hob-type-error head "undefined type `~a`" expr))))
@@ -40,10 +51,6 @@
           (inst found (loop :for targ :in targs :for arg :in args :collect
                          (unify expr arg (parse-type targ)))))
          (t (hob-type-error expr "type `~a` does not take type parameters" head)))))))
-
-(defvar *type-cx* nil)
-
-(defun mkvar () (tvar *type-cx* nil nil))
 
 (defstruct (instance (:constructor instance (cx))) cx subst (instantiating 0))
 
@@ -62,7 +69,10 @@
                             v)))
                     tp))
                ((inst type args) (inst type (mapcar #'ins args)))
-               ((fun args result) (fun (mapcar #'ins args) (ins result))))))
+               ((fun req-args opt-args rest-arg result cx count)
+                (fun (mapcar #'ins req-args) (mapcar #'ins opt-args)
+                     (and rest-arg (ins rest-arg)) (ins result) *type-cx*
+                     (if (member (instance-cx inst) cx) (copy-list count) count))))))
     (ins type)))
 
 (defun typecheck-seq (exprs)
@@ -91,7 +101,7 @@
                      (:word variant)
                      ((name . fields) (values name (mapcar #'parse-type fields))))
                  (push (h-word-name name) (data-forms tp))
-                 (let ((vtype (if fields (fun fields tpinst) tpinst)))
+                 (let ((vtype (if fields (mkfun fields tpinst) tpinst)))
                    (when (data-args tp) (setf vtype (tclose cx vtype)))
                    (bind-word name :value :type vtype)
                    (bind-word name :pattern :form (tform tp fields vtype)))))
@@ -113,10 +123,16 @@
 (defun typecheck (expr)
   (match expr
     ((:seq forms) (if forms (typecheck-seq forms) (inst *unit* ())))
-    (("#fn" args body)
-     (let ((args (lmapseq (arg args)
-                   (bind-word arg :value :type (mkvar)))))
-       (fun args (typecheck body))))
+    (("#fn" req-args opt-args rest-arg body)
+     (let ((req-args (lmapseq (req req-args)
+                       (bind-word req :value :type (mkvar))))
+           (opt-args (lmapseq (("=" name def) opt-args)
+                       (bind-word name :value :type (typecheck def))))
+           (rest-arg (when (h-word-p rest-arg)
+                       (let ((v (mkvar)))
+                         (bind-word rest-arg :value :type (inst *list* (list v)))
+                         v))))
+       (mkfun req-args (typecheck body) opt-args rest-arg)))
     (("#match" inputs cases)
      (let ((input-types (lmapseq (input inputs) (typecheck input)))
            (out (mkvar)))
@@ -132,7 +148,7 @@
     ((head . args)
      (let ((arg-types (mapcar #'typecheck args))
            (ret-ty (mkvar)))
-       (unify head (fun arg-types ret-ty) (typecheck head))
+       (unify head (mkfun arg-types ret-ty) (typecheck head))
        ret-ty))
     (:word
      (let ((found (lookup-word expr :value :type)))
@@ -169,7 +185,7 @@
            (result (mkvar)))
        (unless (= (length args) (length (tform-args found)))
          (hob-type-error pat "wrong number of arguments for `~a` (expected ~a)" head (length (tform-args found))))
-       (unify pat (fun (loop :for arg :in args :collect (typecheck-pat arg close mut)) result)
+       (unify pat (mkfun (loop :for arg :in args :collect (typecheck-pat arg close mut)) result)
               (vcase (tform-templ found)
                 ((tclose cx type) (instantiate type (instance cx)))
                 (t (tform-templ found))))
@@ -185,6 +201,14 @@
 (defun resolve (ty)
   (vcase ty
     ((tvar ref) (if ref (setf (tvar-ref ty) (resolve ref)) ty))
+    ((fun req-args opt-args rest-arg count)
+     (loop :while (cdr count) :do (setf count (setf (fun-count ty) (cdr count))))
+     (when (car count)
+       (setf (fun-count ty) nil
+             (fun-opt-args ty) nil
+             (fun-rest-arg ty) nil
+             (fun-req-args ty) (loop :repeat (car count) :collect (or (pop req-args) (pop opt-args) rest-arg))))
+     ty)
     (t ty)))
 
 (defun unify (expr t1 t2)
@@ -223,19 +247,49 @@
          (fail))
        (inst type (loop :for a1 :in args :for a2 :in (inst-args t2) :collect
                      (unify expr a1 a2))))
-      ((fun args result)
-       (unless (and (eq (type-of t2) 'fun) (= (length args) (length (fun-args t2))))
-         (fail))
-       (fun (loop :for a1 :in args :for a2 :in (fun-args t2) :collect (unify expr a1 a2))
-            (unify expr result (fun-result t2)))))))
+      ((fun (req1 req-args) (opt1 opt-args) (rest1 rest-arg) (res1 result) (c1 count))
+       (vcase t2
+         ((fun (req2 req-args) (opt2 opt-args) (rest2 rest-arg) (res2 result) (c2 count))
+          (unify expr res1 res2)
+          (when (and c1 c2)
+            ;; Two specific types must match exactly
+            (unless (and (= (length req1) (length req2)) (= (length opt1) (length opt2))
+                         (eq (not res1) (not res2))) (fail))
+            (loop :for r1 :in req1 :for r2 :in req2 :do (unify expr r1 r2))
+            (loop :for o1 :in opt1 :for o2 :in opt2 :do (unify expr o1 o2))
+            (when res1 (unify expr res1 res2))
+            (setf (cdr c1) c2)
+            (return-from unify (if (< (length (fun-cx t1)) (length (fun-cx t2))) t1 t2)))
+          (when c2
+            (rotatef t1 t2)
+            (rotatef c1 c2)
+            (rotatef req1 req2)
+            (rotatef opt1 opt2)
+            (rotatef rest1 rest2)
+            (rotatef res1 res2))
+          ;; t1 is specific, must be simplified
+          (when c1
+            (when (or (and (not rest1) (> (length req2) (+ (length req1) (length opt1))))
+                      (< (length req2) (length req1))) (fail))
+            (loop :for arg :in req2 :do
+               (unify expr arg (or (pop req2) (pop opt1) rest1)))
+            (setf (car c1) (length req2))
+            (return-from unify t1))
+          ;; Neither is specific, simple unification
+          (unless (= (length req1) (length req2)) (fail))
+          (loop :for a1 :in req1 :for a2 :in req2 :do (unify expr a1 a2))
+          t1)
+         (t (fail)))))))
 
 (defun print-type (type)
   (let ((seen ()) (next (char-code #\a)))
     (labels ((prnt (type)
                (setf type (resolve type))
                (evcase type
-                 ((fun args result)
-                  (format nil "(~{~a ~}-> ~a)" (mapcar #'prnt args) (prnt result)))
+                 ((fun req-args opt-args rest-arg result)
+                  (format nil "(~{~a ~}~:[~;~:* &opt~{ ~a~}~]~:[~;~:*&rest ~a~] -> ~a)"
+                          (mapcar #'prnt req-args) (mapcar #'prnt opt-args)
+                          (and rest-arg (prnt rest-arg)) (prnt result)))
                  ((inst type args)
                   (let ((name (vcase type
                                 ((prim name) name)
@@ -255,5 +309,8 @@
     (evcase tp
       ((tvar) (eq var tp))
       ((inst args) (loop :for a :in args :when (occurs var a) :return t))
-      ((fun args result) (or (loop :for a :in args :when (occurs var a) :return t)
-                             (occurs var result))))))
+      ((fun req-args opt-args rest-arg result)
+       (or (loop :for a :in req-args :when (occurs var a) :return t)
+           (loop :for a :in opt-args :when (occurs var a) :return t)
+           (and rest-arg (occurs var rest-arg))
+           (occurs var result))))))

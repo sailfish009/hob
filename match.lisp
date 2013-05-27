@@ -60,7 +60,7 @@
                              (h-app "#match" (h-app "#fld" guard (h-lit 0))
                                     (h-seq (list (h-app "->" (h-lit 1) (h-app (h-word "some" nil *top*) body))
                                                  (h-app "->" (h-lit 2) (h-word "$none" nil *top*)))))))
-                         (push (h-app "#def" name (h-app "#fn" (flatten-patterns pats) body)) defs)
+                         (push (h-app "#def" name (h-app "#fn" (flatten-patterns pats) (h-nil) (h-nil) body)) defs)
                          (make-br :pats (seq-list pats) :guard (and guard t) :bound () :body name)))))
          (val-vars (lmapseq (val vals)
                      (if (h-word-p val)

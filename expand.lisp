@@ -83,13 +83,23 @@
        (h-app "#match" values cases)))))
 
 (define-special-form "#fn" (env)
-  ((args body)
+  ((req-args opt-args rest-arg body)
    (let ((inner (scope env)))
-     (doseq (arg args)
-       (unless (is-variable arg)
-         (syntax-error arg "invalid binding in argument list"))
-       (as-binding arg inner :value))
-     (h-app "#fn" args (expand-value body inner)))))
+     (doseq (req req-args)
+       (unless (is-variable req)
+         (syntax-error req "invalid binding in argument list"))
+       (as-binding req inner :value))
+     (if (is-variable rest-arg)
+         (as-binding rest-arg inner :value)
+         (unless (and (h-seq-p rest-arg) (not (h-seq-vals rest-arg)))
+           (syntax-error rest-arg "&rest arguments must be either a word or []")))
+     (h-app "#fn" req-args (mapseq (opt opt-args)
+                             (match opt
+                               (("=" (:as :word v) def)
+                                (h-app "=" (as-binding v inner :value) (expand-value def env)))
+                               (t (syntax-error opt "&opt arguments must be `(= word default)` forms"))))
+            rest-arg
+            (expand-value body inner)))))
 
 (defun as-binding (word env ns &optional is-const)
   (get-binding env ns (h-word-name word))
@@ -216,15 +226,20 @@
 ;; Type expansion
 
 (defun expand-type (expr env)
-  (match expr
-    (:word
-     (unless (h-word-env expr) (setf (h-word-env expr) env))
-     expr)
-    ((head . args)
-     (h-app* (expand-type head env)
-             (loop :for arg :in args :collect (expand-type arg env))))
-    (:lit (syntax-error expr "found literal in type position"))
-    (:seq (syntax-error expr "found sequence in type position"))))
+  (labels ((expand (expr)
+             (match expr
+               (:word
+                (unless (h-word-env expr) (setf (h-word-env expr) env))
+                expr)
+               (:lit (syntax-error expr "found literal in type position"))
+               (:seq (syntax-error expr "found sequence in type position"))
+               (((:as :word head) . :_)
+                (let ((mac (lookup env :value (h-word-name head) :macro)))
+                  (if mac
+                      (expand (funcall mac expr))
+                      (transform-expr expr #'expand))))
+               (t (transform-expr expr #'expand)))))
+    (expand expr)))
 
 ;; Tester
 
