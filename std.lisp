@@ -120,8 +120,6 @@
 (define-macro :value "<-"
   ((place val) (h-app "#assign" place val)))
 
-(define-macro :value "seq" (args (h-seq args)))
-
 (define-macro :type "->"
   ((args result)
    (multiple-value-bind (req opt rest) (split-arglist (seq-list args))

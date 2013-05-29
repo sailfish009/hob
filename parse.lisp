@@ -138,13 +138,14 @@
 (defmacro in-brackets (in close &body body)
   `(in-brackets* ,in ,close (lambda () ,@body)))
 
-(defun bracketed-block (in)
-  (let ((margin (margin in)))
-    (if (ends in margin nil)
-        (h-nil)
-        (let ((head (parse-block in))
-              (rest (loop :while (eat in :punc ";" margin) :collect (parse-block in))))
-          (if rest (h-seq (cons head rest)) head)))))
+(defun bracketed-block (in end)
+  (let (is-seq elts)
+    (loop
+       (when (tok= in :punc end) (return))
+       (push (parse-block in) elts)
+       (unless (eat in :punc ";") (return))
+       (setf is-seq t))
+    (if (or (not elts) (cdr elts) is-seq) (h-seq (nreverse elts)) (car elts))))
 
 (defun ends-with (str suffix)
   (let ((start (- (length str) (length suffix))))
@@ -166,15 +167,15 @@
                          (if (tok= in :punc ")")
                              op
                              (parse-app-expr in op 0 t))))
-                      (t (bracketed-block in)))))
+                      (t (bracketed-block in ")")))))
              ((ends-with val "{")
               (in-brackets in "}"
                 (let ((name (h-word (concatenate 'string val "}") (token-pos in start-line start-col))))
-                  (h-app name (bracketed-block in)))))
+                  (h-app name (bracketed-block in "}")))))
              ((ends-with val "[")
               (in-brackets in "]"
                 (let ((name (h-word (concatenate 'string val "]") (token-pos in start-line start-col))))
-                  (h-app name (bracketed-block in)))))
+                  (h-app name (bracketed-block in "]")))))
              ((is-arrow val)
               (h-app (h-word val (token-pos in start-line start-col))
                      (h-nil)
