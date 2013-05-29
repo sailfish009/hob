@@ -127,10 +127,6 @@
 
 ;; Types
 
-(defparameter *int* (prim "Int" 'integer))
-(defparameter *float* (prim "Float" 'double-float))
-(defparameter *char* (prim "Char" 'character))
-(defparameter *string* (prim "String" 'string))
 (bind! *top* :type "Int" :type *int*)
 (bind! *top* :type "Float" :type *float*)
 (bind! *top* :type "Char" :type *char*)
@@ -152,14 +148,12 @@
 
 ;; Unit type
 
-(defparameter *unit* (data "_" () (list "$_")))
 (bind! *top* :type "_" :type *unit*)
 (bind! *top* :value "$_" :type (inst *unit* ()))
 (bind! *top* :value "$_" :value (vector 1))
 
 ;; Booleans
 
-(defparameter *bool* (data "Bool" () (list "$true" "$false")))
 (bind! *top* :type "Bool" :type *bool*)
 (bind! *top* :value "$true" :type (inst *bool* ()))
 (bind! *top* :value "$false" :type (inst *bool* ()))
@@ -173,7 +167,7 @@
          (*type-cx* (cons cx *type-cx*))
          (name (with-output-to-string (out) (dotimes (i (1- arity)) (write-char #\, out))))
          (vars (loop :repeat arity :collect (mkvar)))
-         (type (data name vars (list name)))
+         (type (data name arity (list name)))
          (ctor (tclose cx (mkfun vars (inst type vars)))))
     (bind! *top* :type name :type type)
     (bind! *top* :value name :type ctor)
@@ -186,33 +180,27 @@
 
 ;; Option type
 
-(defparameter *option*
-  (let* ((cx (gensym))
-         (*type-cx* (cons cx *type-cx*))
-         (var (list (mkvar)))
-         (type (data "Option" var (list "Some" "None")))
-         (ctor (tclose cx (mkfun var (inst type var)))))
-    (bind! *top* :type "Option" :type type)
-    (bind! *top* :value "some" :type ctor)
-    (bind! *top* :value "some" :value (lambda (a) (vector 1 a)))
-    (bind! *top* :pattern "some" :form (tform type var ctor))
-    (bind! *top* :value "$none" :type (tclose cx (inst type (list var))))
-    (bind! *top* :value "$none" :value (vector 2))
-    type))
+(let* ((cx (gensym))
+       (*type-cx* (cons cx *type-cx*))
+       (var (list (mkvar)))
+       (ctor (tclose cx (mkfun var (inst *option* var)))))
+  (bind! *top* :type "Option" :type *option*)
+  (bind! *top* :value "some" :type ctor)
+  (bind! *top* :value "some" :value (lambda (a) (vector 1 a)))
+  (bind! *top* :pattern "some" :form (tform *option* var ctor))
+  (bind! *top* :value "$none" :type (tclose cx (inst *option* (list var))))
+  (bind! *top* :value "$none" :value (vector 2)))
 
 ;; List type
 
-(defparameter *list*
-  (let* ((cx (gensym))
-         (*type-cx* (cons cx *type-cx*))
-         (v (mkvar))
-         (type (data "[]" (list v) (list "cons" "$nil")))
-         (inst (inst type (list v)))
-         (ctor (tclose cx (mkfun (list v inst) inst))))
-    (bind! *top* :type "[]" :type type)
-    (bind! *top* :value "$nil" :type (tclose cx (inst type (list v))))
-    (bind! *top* :value "$nil" :value (vector 2))
-    (bind! *top* :value "cons" :type ctor)
-    (bind! *top* :value "cons" :value (lambda (a b) (vector 1 a b)))
-    (bind! *top* :pattern "cons" :form (tform type (list v inst) ctor))
-    type))
+(let* ((cx (gensym))
+       (*type-cx* (cons cx *type-cx*))
+       (v (mkvar))
+       (inst (inst *list* (list v)))
+       (ctor (tclose cx (mkfun (list v inst) inst))))
+  (bind! *top* :type "[]" :type *list*)
+  (bind! *top* :value "$nil" :type (tclose cx (inst *list* (list v))))
+  (bind! *top* :value "$nil" :value (vector 2))
+  (bind! *top* :value "cons" :type ctor)
+  (bind! *top* :value "cons" :value (lambda (a b) (vector 1 a b)))
+  (bind! *top* :pattern "cons" :form (tform *list* (list v inst) ctor)))

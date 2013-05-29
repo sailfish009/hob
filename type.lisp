@@ -6,7 +6,7 @@
 
 (variant type*
   (prim name sym)
-  (data name args forms)
+  (data name n-args forms)
   (tparam val))
 
 (variant type-expr
@@ -16,6 +16,16 @@
   (tclose cx type))
 
 (defstruct (tform (:constructor tform (type args templ))) type args templ)
+
+;; Standard types (move option and list into source-based stdlib later)
+(defvar *int* (prim "Int" 'integer))
+(defvar *float* (prim "Float" 'double-float))
+(defvar *char* (prim "Char" 'character))
+(defvar *string* (prim "String" 'string))
+(defvar *unit* (data "_" 0 (list "$_")))
+(defvar *bool* (data "Bool" 0 (list "$true" "$false")))
+(defvar *option* (data "Option" 1 (list "Some" "None")))
+(defvar *list* (data "[]" 1 (list "cons" "$nil")))
 
 (defvar *type-cx* nil)
 
@@ -32,8 +42,8 @@
                       (hob-type-error expr "undefined type `~a`" expr))))
        (evcase found
          (prim (inst found ()))
-         ((data args)
-          (when args (hob-type-error expr "type `~a` takes type parameters" expr))
+         ((data n-args)
+          (when (> n-args 0) (hob-type-error expr "type `~a` takes type parameters" expr))
           (inst found ()))
          ((tparam val) val))))
     (("#fn" req-args opt-args rest-arg ret)
@@ -45,11 +55,10 @@
      (let ((found (or (lookup-word head :type :type)
                       (hob-type-error head "undefined type `~a`" expr))))
        (evcase found
-         ((data args)
-          (unless (= (length targs) (length args))
+         ((data n-args)
+          (unless (= (length targs) n-args)
             (hob-type-error expr "incorrect number of parameters for type `~a`" head))
-          (inst found (loop :for targ :in targs :for arg :in args :collect
-                         (unify expr arg (parse-type targ)))))
+          (inst found (loop :for targ :in targs :collect (parse-type targ))))
          (t (hob-type-error expr "type `~a` does not take type parameters" head)))))))
 
 (defstruct (instance (:constructor instance (cx))) cx subst (instantiating 0))
@@ -83,29 +92,30 @@
       (match expr
         (("#data" name variants)
          (multiple-value-bind (name args) (match name (:word name) ((name . args) (values name args)))
-           (let ((argvars (loop :for arg :in args :collect
-                             (let ((v (mkvar))) (bind-word arg :type :type (tparam v)) v))))
-             (bind-word name :type :type (data (h-word-name name) argvars nil)))))
+           (dolist (arg args)
+             (bind-word arg :type :type (tparam (mkvar))))
+           (bind-word name :type :type (data (h-word-name name) (length args) nil))))
         (("#def" pat :_) (push (typecheck-pat pat t) def-types))
         (("#var" pat :_) (push (typecheck-pat pat t t) def-types))
         (t)))
     (dolist (expr exprs)
       (match expr
         (("#data" name variants)
-         (let ((name (match name (:word name) ((name . :_) name))))
-           (let* ((tp (lookup-word name :type :type))
-                  (tpinst (inst tp (data-args tp))))
-             (doseq (variant variants)
-               (multiple-value-bind (name fields)
-                   (match variant
-                     (:word variant)
-                     ((name . fields) (values name (mapcar #'parse-type fields))))
-                 (push (h-word-name name) (data-forms tp))
-                 (let ((vtype (if fields (mkfun fields tpinst) tpinst)))
-                   (when (data-args tp) (setf vtype (tclose cx vtype)))
-                   (bind-word name :value :type vtype)
-                   (bind-word name :pattern :form (tform tp fields vtype)))))
-             (setf (data-forms tp) (nreverse (data-forms tp))))))
+         (let* ((name (match name (:word name) ((name . :_) name)))
+                (tp (lookup-word name :type :type))
+                (vars (loop :repeat (data-n-args tp) :collect (mkvar)))
+                (tpinst (inst tp vars)))
+           (doseq (variant variants)
+             (multiple-value-bind (name fields)
+                 (match variant
+                   (:word variant)
+                   ((name . fields) (values name (mapcar #'parse-type fields))))
+               (push (h-word-name name) (data-forms tp))
+               (let ((vtype (if fields (mkfun fields tpinst) tpinst)))
+                 (when (> 0 (data-n-args tp)) (setf vtype (tclose cx vtype)))
+                 (bind-word name :value :type vtype)
+                 (bind-word name :pattern :form (tform tp fields vtype)))))
+           (setf (data-forms tp) (nreverse (data-forms tp)))))
         (t)))
     (setf def-types (nreverse def-types))
     (dolist (expr exprs)
