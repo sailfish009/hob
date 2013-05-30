@@ -57,8 +57,8 @@
                 (if neg (- num) num)))))))))
 
 (defparameter *punctuation-chars* "{}()[];,.")
-(defparameter *operator-chars* "~+-=/%&|*^@<>!?")
-(defun is-word-char (ch) (or (alphanumericp ch) (find ch "'_$") (find ch *operator-chars*)))
+(defparameter *operator-chars* "~+-=/%&|*^@<>!?$")
+(defun is-word-char (ch) (or (alphanumericp ch) (find ch "'_") (find ch *operator-chars*)))
 (defun is-arrow (word) (find word '("->" "=>") :test 'string=))
 
 (defun cur-ch (in)

@@ -124,3 +124,9 @@
   ((args result)
    (multiple-value-bind (req opt rest) (split-arglist (seq-list args))
      (h-app "#fn" (h-seq req) (h-seq opt) (or rest (h-nil)) result))))
+
+(let* ((cx (gensym))
+       (*type-cx* (cons cx *type-cx*))
+       (v (mkvar)))
+  (bind! *top* :value "@" :type (tclose cx (mkfun (list (inst *array* (list v)) (inst *int* ())) v)))
+  (bind! *top* :value "@" :value #'svref))
