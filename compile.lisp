@@ -35,6 +35,7 @@
                     `(t ,(hcompile body))
                     `((equal ,(hcompile lit) ,(hcompile val)) ,(hcompile body))))))
     (("#fld" val i) `(svref ,(hcompile val) ,(h-lit-val i)))
+    (("#len" val) `(length ,(hcompile val)))
     (("#assign" place val) `(setf ,(hcompile place) ,(hcompile val)))
     (("#assert" a b) `(unless (equal ,(hcompile a) ,(hcompile b)) (error "matching failed")))
     (("#assert" "()") '(error "matching failed"))

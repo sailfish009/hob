@@ -7,7 +7,18 @@
 (variant type*
   (prim name sym)
   (data name n-args forms)
+  (array*)
   (tparam val))
+
+(defgeneric type-n-args (tp)
+  (:method ((tp data)) (data-n-args tp))
+  (:method ((tp array*)) 1)
+  (:method (tp) 0))
+
+(defgeneric type-name (tp)
+  (:method ((tp data)) (data-name tp))
+  (:method ((tp array*)) "[]")
+  (:method ((tp prim)) (prim-name tp)))
 
 (variant type-expr
   (fun req-args opt-args rest-arg result cx count)
@@ -15,17 +26,126 @@
   (inst type args)
   (tclose cx type))
 
-(defstruct (tform (:constructor tform (type args templ))) type args templ)
+;; Builtin types
 
-;; Standard types (move option and list into source-based stdlib later)
-(defvar *int* (prim "Int" 'integer))
-(defvar *float* (prim "Float" 'double-float))
-(defvar *char* (prim "Char" 'character))
-(defvar *string* (prim "String" 'string))
-(defvar *unit* (data "_" 0 (list "$_")))
-(defvar *bool* (data "Bool" 0 (list "$true" "$false")))
-(defvar *option* (data "Option" 1 (list "Some" "None")))
-(defvar *list* (data "[]" 1 (list "cons" "$nil")))
+(defparameter *int* (prim "Int" 'integer))
+(bind! *top* :type "Int" :type *int*)
+(defparameter *float* (prim "Float" 'double-float))
+(bind! *top* :type "Float" :type *float*)
+(defparameter *char* (prim "Char" 'character))
+(bind! *top* :type "Char" :type *char*)
+(defparameter *string* (prim "String" 'string))
+(bind! *top* :type "String" :type *string*)
+
+;; Basic arithmetic
+
+(let* ((int (inst *int* ()))
+       (binary (mkfun (list int int) int)))
+  (bind! *top* :value "+" :type binary)
+  (bind! *top* :value "-" :type binary)
+  (bind! *top* :value "*" :type binary)
+  (bind! *top* :value "/" :type binary))
+
+(bind! *top* :value "+" :value (lambda (a b) (+ a b)))
+(bind! *top* :value "-" :value (lambda (a b) (- a b)))
+(bind! *top* :value "*" :value (lambda (a b) (* a b)))
+(bind! *top* :value "/" :value (lambda (a b) (/ a b)))
+
+;; Unit type
+
+(defparameter *unit*
+  (let* ((tp (data "_" 0 ())))
+    (push tp (data-forms tp))
+    (bind! *top* :type "_" :type tp)
+    (bind! *top* :value "$_" :type (inst tp ()))
+    (bind! *top* :value "$_" :value (vector 1))
+    (bind! *top* :pattern "$_" :type (cons tp 1))
+    tp))
+
+;; Booleans
+
+(defparameter *bool*
+  (let ((tp (data "Bool" 0 ())))
+    (setf (data-forms tp) (list tp tp))
+    (bind! *top* :type "Bool" :type tp)
+    (bind! *top* :value "$true" :type (inst tp ()))
+    (bind! *top* :value "$false" :type (inst tp ()))
+    (bind! *top* :value "$true" :value (vector 1))
+    (bind! *top* :value "$false" :value (vector 2))
+    (bind! *top* :pattern "$true" :type (cons tp 1))
+    (bind! *top* :pattern "$false" :type (cons tp 2))
+    tp))
+
+;; Tuples
+
+(defun declare-tuple (arity)
+  (let* ((cx (gensym))
+         (*type-cx* (cons cx *type-cx*))
+         (name (with-output-to-string (out) (dotimes (i (1- arity)) (write-char #\, out))))
+         (vars (loop :repeat arity :collect (mkvar)))
+         (type (data name arity ()))
+         (ctor (tclose cx (mkfun vars (inst type vars)))))
+    (push ctor (data-forms type))
+    (bind! *top* :type name :type type)
+    (bind! *top* :value name :type ctor)
+    (bind! *top* :pattern name :type (cons type 1))
+    (bind! *top* :value name :value
+           (let ((syms (loop :repeat arity :collect (gensym))))
+             (funcall (compile-s-expr `(lambda ,syms (vector 1 ,@syms))))))))
+
+(loop :for a :from 2 :below 10 :do (declare-tuple a))
+
+;; Option type
+
+(defparameter *option*
+  (let* ((cx (gensym))
+         (*type-cx* (cons cx *type-cx*))
+         (tp (data "Option" 1 ()))
+         (var (list (mkvar)))
+         (ctor (tclose cx (mkfun var (inst tp var)))))
+    (setf (data-forms tp) (list ctor (tclose cx tp)))
+    (bind! *top* :type "Option" :type tp)
+    (bind! *top* :value "some" :type ctor)
+    (bind! *top* :value "some" :value (lambda (a) (vector 1 a)))
+    (bind! *top* :pattern "some" :type (cons tp 1))
+    (bind! *top* :value "$none" :type (tclose cx (inst tp (list var))))
+    (bind! *top* :value "$none" :value (vector 2))
+    (bind! *top* :pattern "$none" :type (cons tp 2))
+    tp))
+
+;; List type
+
+(defparameter *list*
+  (let* ((cx (gensym))
+         (*type-cx* (cons cx *type-cx*))
+         (tp (data "[]" 1 ()))
+         (v (mkvar))
+         (inst (inst tp (list v)))
+         (ctor (tclose cx (mkfun (list v inst) inst))))
+    (setf (data-forms tp) (list ctor (tclose cx tp)))
+    (bind! *top* :type "l[]" :type tp)
+    (bind! *top* :value "$nil" :type (tclose cx (inst tp (list v))))
+    (bind! *top* :value "$nil" :value (vector 2))
+    (bind! *top* :pattern "$nil" :type (cons tp 2))
+    (bind! *top* :value "cons" :type ctor)
+    (bind! *top* :value "cons" :value (lambda (a b) (vector 1 a b)))
+    (bind! *top* :pattern "cons" :type (cons tp 1))
+    tp))
+
+;; Array type
+
+(defparameter *array* (array*))
+(defparameter *array-ctor-type*
+  (let* ((cx (gensym))
+         (*type-cx* (cons cx *type-cx*))
+         (v (mkvar))
+         (inst (inst *array* (list v)))
+         (ctor (tclose cx (mkfun (list v inst) inst nil v))))
+    (bind! *top* :type "[]" :type *array*)
+    (bind! *top* :value "[]" :type ctor)
+    (bind! *top* :value "[]" :value (lambda (&rest elts) (concatenate 'vector elts)))
+    (bind! *top* :pattern "[]" :type (cons *array* nil))
+    ctor))
 
 (defvar *type-cx* nil)
 
@@ -40,12 +160,9 @@
     (:word
      (let ((found (or (lookup-word expr :type :type)
                       (hob-type-error expr "undefined type `~a`" expr))))
-       (evcase found
-         (prim (inst found ()))
-         ((data n-args)
-          (when (> n-args 0) (hob-type-error expr "type `~a` takes type parameters" expr))
-          (inst found ()))
-         ((tparam val) val))))
+       (cond ((typep found 'tparam) (tparam-val found))
+             ((> (type-n-args found) 0) (hob-type-error expr "type `~a` takes type parameters" expr))
+             (t (inst found ())))))
     (("#fn" req-args opt-args rest-arg ret)
      (mkfun (mapcar #'parse-type (h-seq-vals req-args))
             (parse-type ret)
@@ -54,12 +171,9 @@
     (((:as :word head) . targs)
      (let ((found (or (lookup-word head :type :type)
                       (hob-type-error head "undefined type `~a`" expr))))
-       (evcase found
-         ((data n-args)
-          (unless (= (length targs) n-args)
-            (hob-type-error expr "incorrect number of parameters for type `~a`" head))
-          (inst found (loop :for targ :in targs :collect (parse-type targ))))
-         (t (hob-type-error expr "type `~a` does not take type parameters" head)))))))
+       (unless (= (length targs) (type-n-args found))
+         (hob-type-error expr "incorrect number of parameters for type `~a`" head))
+       (inst found (loop :for targ :in targs :collect (parse-type targ)))))))
 
 (defstruct (instance (:constructor instance (cx))) cx subst (instantiating 0))
 
@@ -104,17 +218,18 @@
          (let* ((name (match name (:word name) ((name . :_) name)))
                 (tp (lookup-word name :type :type))
                 (vars (loop :repeat (data-n-args tp) :collect (mkvar)))
-                (tpinst (inst tp vars)))
+                (tpinst (inst tp vars))
+                (i 0))
            (doseq (variant variants)
              (multiple-value-bind (name fields)
                  (match variant
                    (:word variant)
                    ((name . fields) (values name (mapcar #'parse-type fields))))
-               (push (h-word-name name) (data-forms tp))
                (let ((vtype (if fields (mkfun fields tpinst) tpinst)))
+                 (push vtype (data-forms tp))
                  (when (> 0 (data-n-args tp)) (setf vtype (tclose cx vtype)))
                  (bind-word name :value :type vtype)
-                 (bind-word name :pattern :form (tform tp fields vtype)))))
+                 (bind-word name :pattern :type (cons tp (incf i))))))
            (setf (data-forms tp) (nreverse (data-forms tp)))))
         (t)))
     (setf def-types (nreverse def-types))
@@ -190,16 +305,20 @@
                v))
          (typecheck pat)))
     (((:as :word head) . args)
-     (let ((found (or (lookup-word head :pattern :form)
-                      (hob-type-error head "undefined pattern `~a`" head)))
-           (result (mkvar)))
-       (unless (= (length args) (length (tform-args found)))
-         (hob-type-error pat "wrong number of arguments for `~a` (expected ~a)" head (length (tform-args found))))
+     (let* ((found (or (lookup-word head :pattern :type)
+                       (hob-type-error head "undefined pattern `~a`" head)))
+            (result (mkvar))
+            (templ (type-form-templ (car found) (cdr found))))
        (unify pat (mkfun (loop :for arg :in args :collect (typecheck-pat arg close mut)) result)
-              (vcase (tform-templ found)
-                ((tclose cx type) (instantiate type (instance cx)))
-                (t (tform-templ found))))
+              (vcase templ ((tclose cx type) (instantiate type (instance cx))) (t templ)))
        result))))
+
+(defgeneric type-form-templ (tp ctor-id)
+  (:method ((tp data) ctor-id)
+    (nth (1- ctor-id) (data-forms tp)))
+  (:method ((tp array*) ctor-id)
+    (declare (ignore ctor-id))
+    *array-ctor-type*))
 
 (defun type-of-lit (expr)
   (etypecase (h-lit-val expr)
@@ -301,9 +420,7 @@
                           (mapcar #'prnt req-args) (mapcar #'prnt opt-args)
                           (and rest-arg (prnt rest-arg)) (prnt result)))
                  ((inst type args)
-                  (let ((name (vcase type
-                                ((prim name) name)
-                                ((data name) name))))
+                  (let ((name (type-name type)))
                     (if args (format nil "(~a~{ ~a~})" name (mapcar #'prnt args)) name)))
                  ((tvar)
                   (or (cdr (assoc type seen))

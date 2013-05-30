@@ -108,12 +108,13 @@
 
 (defmethod print-object ((e h-lit) out)
   (let ((v (h-lit-val e)))
-    (etypecase v
+    (typecase v
       (string (write-escaped-string v out))
       (cons (write-string (car v) out) (write-escaped-string (cdr v) out))
       (character (write-char #\\ out) (write-escaped-char v out nil))
       (integer (write v :stream out))
-      (real (format out "~,,,,,,'eE" v)))))
+      (real (format out "~,,,,,,'eE" v))
+      (t (format out "<BAD LIT: ~a>" v)))))
 
 (defun write-escaped-string (str out)
   (write-char #\" out)

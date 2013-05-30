@@ -9,6 +9,35 @@
 
 (defstruct br pats guard bound body)
 
+(defgeneric type-form-disc (tp expr)
+  (:method ((tp data) expr)
+    (cdr (lookup-word (if (h-word-p expr) expr (h-app-head expr)) :pattern :type)))
+  (:method ((tp array*) expr)
+    (length (h-app-args expr)))
+  (:method ((tp prim) expr)
+    (h-lit-val expr)))
+
+(defgeneric type-get-disc (tp expr)
+  (:method ((tp data) expr)
+    (h-app "#fld" expr (h-lit 0)))
+  (:method ((tp array*) expr)
+    (h-app "#len" expr))
+  (:method ((tp prim) expr)
+    expr))
+
+(defgeneric type-form-extract-fields (tp n-args expr)
+  (:method ((tp data) n-args expr)
+    (loop :for i :below n-args :collect (h-app "#fld" expr (h-lit (1+ i)))))
+  (:method ((tp array*) n-args expr)
+    (loop :for i :below n-args :collect (h-app "#fld" expr (h-lit i))))
+  (:method (tp n-args expr)
+    (assert (eq n-args 0))
+    ()))
+
+(defgeneric type-needs-form-test (tp)
+  (:method ((tp data)) (cdr (data-forms tp)))
+  (:method (tp) (declare (ignore tp)) t))
+
 (defun h-gensym (name &optional scope)
   (unless scope (setf scope (scope nil)))
   (let ((name (string-downcase (symbol-name (gensym name)))))
@@ -29,7 +58,7 @@
                  ((head . args)
                   (let ((type (pattern-type pat)))
                     (unless (= (count-forms type) 1)
-                      (push (h-app "#assert" (h-lit (find-disc type (h-word-name head)))
+                      (push (h-app "#assert" (h-lit (type-form-disc type pat))
                                    (h-app "#fld" input (h-lit 0))) statements))
                     (loop :for arg :in args :for i :from 1 :do
                        (let ((sym (h-gensym "val" scope)))
@@ -85,7 +114,7 @@
   (h-seq (or (mapcan #'flatten-pattern (seq-list pats))
              (list (h-word "_")))))
 
-(defstruct opt name type disc n-args)
+(defstruct opt type disc n-args)
 
 (defun pattern-type (pat)
   (evcase (resolve (gethash pat (context-pat-types *context*)))
@@ -108,16 +137,16 @@
                  (loop :for cons :in sorted :do
                     (push (extend-default br (opt-n-args (car cons)))
                           (cdr cons)))))
-             (add-opt (type name br &optional args)
+             (add-opt (type disc br &optional args)
                (let ((br (make-br :pats (if args (append args (cdr (br-pats br))) (cdr (br-pats br)))
                                   :guard (br-guard br)
                                   :bound (br-bound br)
                                   :body (br-body br))))
-                 (let ((found (find-if (lambda (cons) (equal (opt-name (car cons)) name)) sorted)))
+                 (let ((found (find-if (lambda (cons) (equal (opt-disc (car cons)) disc)) sorted)))
                    (if found
                        (push br (cdr found))
                        (let* ((n-args (length args))
-                              (opt (make-opt :name name :type type :disc (find-disc type name) :n-args n-args))
+                              (opt (make-opt :type type :disc disc :n-args n-args))
                               (defs (if (zerop n-args) default
                                         (loop :for d :in default :collect (extend-default d (length args))))))
                          (push (cons opt (cons br defs)) sorted)))))))
@@ -126,18 +155,14 @@
            (:lit (add-opt (pattern-type pat) (h-lit-val pat) br))
            ((:word nm)
             (if (is-const nm)
-                (add-opt (pattern-type pat) nm br)
+                (let ((tp (pattern-type pat)))
+                  (add-opt tp (type-form-disc tp pat) br))
                 (add-default br (unless (equal nm "_") val))))
-           (((:word nm) . args) (add-opt (pattern-type pat) nm br args))))
+           (((:word nm) . args)
+            (let ((tp (pattern-type pat)))
+              (add-opt tp (type-form-disc tp pat) br args)))))
       (values (loop :for (opt . brs) :in sorted :collect (cons opt (nreverse brs)))
               (nreverse default)))))
-
-(defun find-disc (type name)
-  (vcase type
-    ((data forms) (loop :for f :in forms :for i :from 1 :do
-                     (when (equal name f) (return i))))
-
-    (t name)))
 
 (defun count-forms (type)
   (vcase type
@@ -161,24 +186,26 @@
     ;; Only condition-less branches, simply continue through
     (unless sorted
       (return-from expand-cases (expand-cases (cdr inputs) default)))
-    (let* ((type (opt-type (caar sorted)))
-           (is-data (typep type 'data)))
-      (if (and is-data (not (cdr (data-forms type))))
+    (let ((type (opt-type (caar sorted))))
+      (if (not (type-needs-form-test type))
           (expand-data-match (caar sorted) (car inputs) (cdr inputs) (cdar sorted))
-          (let ((val (if is-data (h-app "#fld" (car inputs) (h-lit 0)) (car inputs)))
+          (let ((val (type-get-disc type (car inputs)))
                 (cases (loop :for (opt . branches) :in sorted :collect
-                          (let ((sub (if is-data
-                                         (expand-data-match opt (car inputs) (cdr inputs) branches)
-                                         (expand-cases (cdr inputs) branches))))
-                            (h-app "->" (h-lit (opt-disc opt)) sub)))))
+                          (h-app "->" (h-lit (opt-disc opt))
+                                 (expand-data-match opt (car inputs) (cdr inputs) branches)))))
             (when (and default (< (length sorted) (count-forms type)))
               (let ((ft (h-app "->" (h-word "_") (expand-cases (cdr inputs) default))))
                 (setf cases (nconc cases (list ft)))))
             (h-app "#match" val (h-seq cases)))))))
 
 (defun expand-data-match (opt base inputs branches)
-  (let* ((scope (scope nil))
-         (syms (loop :repeat (opt-n-args opt) :collect (h-gensym "val" scope))))
-    (h-seq (nconc (loop :for sym :in syms :for i :from 1 :collect
-                     (h-app "#def" sym (h-app "#fld" base (h-lit i))))
-                  (list (expand-cases (nconc syms inputs) branches))))))
+  (let ((fields (type-form-extract-fields (opt-type opt) (opt-n-args opt) base)))
+    (if fields
+        (let* ((scope (scope nil))
+               syms
+               (defs (loop :for fld :in fields :collect
+                        (let ((s (h-gensym "val" scope)))
+                          (push s syms)
+                          (h-app "#def" s fld)))))
+          (h-seq (nconc defs (list (expand-cases (nconc (nreverse syms) inputs) branches)))))
+        (expand-cases inputs branches))))
