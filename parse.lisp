@@ -139,13 +139,16 @@
   `(in-brackets* ,in ,close (lambda () ,@body)))
 
 (defun bracketed-block (in end)
-  (let (is-seq elts)
+  (let ((has-semis :?)
+        elts
+        (margin (margin in)))
     (loop
        (when (tok= in :punc end) (return))
-       (push (parse-block in) elts)
-       (unless (eat in :punc ";") (return))
-       (setf is-seq t))
-    (if (or (not elts) (cdr elts) is-seq) (h-seq (nreverse elts)) (car elts))))
+       (push (parse-tup-expr in (1+ margin)) elts)
+       (when (eq has-semis :?) (setf has-semis (tok= in :punc ";")))
+       (when (if has-semis (not (eat in :punc ";")) (ends in margin))
+         (return)))
+    (values (nreverse elts) has-semis)))
 
 (defun ends-with (str suffix)
   (let ((start (- (length str) (length suffix))))
@@ -161,21 +164,24 @@
            (val (token-value in)))
        (cond ((string= val "(")
               (in-brackets in ")"
-                (cond ((tok= in :op)
-                       (let ((op (token-word in)))
-                         (next-token in)
-                         (if (tok= in :punc ")")
-                             op
-                             (parse-app-expr in op 0 t))))
-                      (t (bracketed-block in ")")))))
+                (if (tok= in :op)
+                    (let ((op (token-word in)))
+                      (next-token in)
+                      (if (tok= in :punc ")")
+                          op
+                          (parse-app-expr in op 0 t)))
+                    (multiple-value-bind (elts is-seq) (bracketed-block in ")")
+                      (cond ((not elts) (h-nil))
+                            ((or (cdr elts) is-seq) (h-seq elts))
+                            (t (car elts)))))))
              ((ends-with val "{")
               (in-brackets in "}"
                 (let ((name (h-word (concatenate 'string val "}") (token-pos in start-line start-col))))
-                  (h-app name (bracketed-block in "}")))))
+                  (h-app* name (bracketed-block in "}")))))
              ((ends-with val "[")
               (in-brackets in "]"
                 (let ((name (h-word (concatenate 'string val "]") (token-pos in start-line start-col))))
-                  (h-app name (bracketed-block in "]")))))
+                  (h-app* name (bracketed-block in "]")))))
              ((is-arrow val)
               (h-app (h-word val (token-pos in start-line start-col))
                      (h-nil)
