@@ -32,7 +32,7 @@
               (("#fn" . :_))
               (t (verify-not-using defs all-defs e)))
             (pop defs))
-           (("#data" . :_))
+           (((:or "#data" "#class") . :_))
            (t (verify-not-using defs all-defs form)))))))
 
 (defun verify-not-using (future-defs all-defs expr)

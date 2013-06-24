@@ -52,3 +52,5 @@
 
 (defun bind-word (word ns kind value)
   (bind (h-word-env word) ns (h-word-name word) kind value))
+
+(defvar *top* (scope nil))

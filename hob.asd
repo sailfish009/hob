@@ -2,6 +2,7 @@
   :depends-on (:cl-ppcre)
   :serial t
   :components ((:file "package")
+               (:file "misc")
                (:file "variant")
                (:file "syntax-err")
                (:file "expr")

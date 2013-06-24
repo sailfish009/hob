@@ -1,6 +1,6 @@
 (in-package :hob)
 
-;; FIXME disallow #let/#date style bindings outside of blocks
+;; FIXME disallow #let/#data style bindings outside of blocks
 
 (defparameter *special-forms* ())
 
@@ -142,6 +142,35 @@
        (as-binding name env :pattern (not args))))
    form))
 
+(define-special-form "#class" (env form)
+  ((name vars body)
+   (let ((inner (scope env)))
+     (doseq (v vars)
+       (unless (h-word-p v)
+         (syntax-error v "class instance types must be words"))
+       (as-binding v inner :type))
+     (h-app "#class" name vars
+            (mapseq (form body)
+              (match form
+                ((h name type) (h-app h name (expand-type type inner)))))))
+   :outer
+   (doseq (form body)
+     (match form
+       (("type" (:as :word name) type)
+        (as-binding name env :value))
+       (t (syntax-error form "only `type` forms may appear in a class body"))))
+   (as-binding name env :class)
+   form))
+
+(define-special-form "#instance" (env form)
+  ((bounds (:as :word class) types body)
+   (h-app "#instance" (mapseq (bound bounds) (expand-bound bound env))
+          class
+          (mapseq (type types) (expand-type type env))
+          (mapseq (form body)
+            (match form
+              (("def" (:as :word name) val) (h-app "def" name (expand-value val env))))))))
+
 ;; Value expansion
 
 (defun expand-value (expr env)
@@ -225,6 +254,12 @@
 
 ;; Type expansion
 
+(defun expand-bound (expr env)
+  (match expr
+    (((:as :word class) . args)
+     (h-app* class (loop :for arg :in args :collect (expand-type arg env))))
+    (t (syntax-error expr "invalid class name"))))
+
 (defun expand-type (expr env)
   (labels ((expand (expr)
              (match expr
@@ -233,8 +268,14 @@
                 expr)
                (:lit (syntax-error expr "found literal in type position"))
                (:seq (syntax-error expr "found sequence in type position"))
+               (("#fn" req opt rest ret)
+                (h-app (h-app-head expr)
+                       (mapseq (arg req) (expand arg))
+                       (mapseq (arg opt) (expand arg))
+                       (match rest (:nil rest) (t (expand rest)))
+                       (expand ret)))
                (((:as :word head) . :_)
-                (let ((mac (lookup env :value (h-word-name head) :macro)))
+                (let ((mac (lookup env :type (h-word-name head) :macro)))
                   (if mac
                       (expand (funcall mac expr))
                       (transform-expr expr #'expand))))

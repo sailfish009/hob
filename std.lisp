@@ -1,7 +1,5 @@
 (in-package :hob)
 
-(defvar *top* (scope nil))
-
 (defmacro define-macro (ns name &body clauses)
   (let ((a (gensym)))
     `(bind! *top* ,ns ,name :macro
@@ -130,3 +128,18 @@
        (v (mkvar)))
   (bind! *top* :value "@" :type (tclose cx (mkfun (list (inst *array* (list v)) (inst *int* ())) v)))
   (bind! *top* :value "@" :value #'svref))
+
+(define-macro :value "class"
+  ((namespec body)
+   (match namespec
+     (((:as :word name) . vars) (h-app "#class" name (h-seq vars) body))
+     (t (syntax-error namespec "malformed class name")))))
+
+(define-macro :value "instance"
+  ((spec body)
+    (multiple-value-bind (bounds class types)
+        (match spec
+          ((":>" bounds (class . types)) (values bounds class types))
+          ((class . types) (values (h-nil) class types))
+          (t (syntax-error spec "malformed instance spec")))
+      (h-app "#instance" bounds class (h-seq types) body))))

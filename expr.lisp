@@ -248,10 +248,3 @@
          (locally
              #+sbcl(declare (sb-ext:muffle-conditions sb-ext:compiler-note))
              (error "Non-exhaustive pattern"))))))
-
-(defun testest ()
-  (if t
-      1
-      (locally
-          (declare (sb-ext:muffle-conditions sb-ext:compiler-note))
-        (error "lots of noise"))))
