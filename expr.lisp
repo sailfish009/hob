@@ -15,7 +15,7 @@
             :end-line (pos-end-line end)
             :end-col (pos-end-col end)))
 
-(defstruct h-expr pos) ;; FIXME save proper position info
+(defstruct h-expr pos)
 
 (defstruct (h-lit (:include h-expr) (:constructor h-lit (val &optional pos))) val)
 
@@ -31,18 +31,27 @@
 (defstruct (h-app (:include h-expr) (:constructor mk-h-app (head args))) head args)
 (defun h-app* (head args)
   (if (stringp head)
-      (setf head (h-word head (and *expanding* (expr-start-pos *expanding*))
-                         (when (eql (schar head 0) #\#) *top*)))
+      (setf head (mk-h-word head (and *expanding* (expr-start-pos *expanding*))
+                            (when (eql (schar head 0) #\#) (list (cons :env *top*)))))
       (assert (h-expr-p head)))
   (dolist (arg args) (assert (h-expr-p arg)))
   (mk-h-app head args))
 (defun h-app (head &rest args)
   (h-app* head args))
 
-(defstruct (h-word (:include h-expr) (:constructor mk-h-word (name pos env))) name env)
-(defun h-word (name &optional pos env)
+(defstruct (h-word (:include h-expr) (:constructor mk-h-word (name pos ann))) name ann)
+(defun h-word (name &optional pos)
   (assert (stringp name))
-  (mk-h-word name pos env))
+  (mk-h-word name pos nil))
+
+(defun word-ann (word type)
+  (cdr (assoc type (h-word-ann word))))
+(defun h-word-env (word) (word-ann word :env))
+(defun h-sym (name &optional env)
+  (mk-h-word name nil (list (cons :env env))))
+
+(defun ann-word (word type val)
+  (mk-h-word (h-word-name word) (h-word-pos word) (cons (cons type val) (h-word-ann word))))
 
 (defun expr-start-pos (expr)
   (or (h-expr-pos expr)
