@@ -9,7 +9,6 @@
                (:file "expr-util")
                (:file "lex")
                (:file "parse")
-               (:file "context")
                (:file "scope")
                (:file "type")
                (:file "compile")

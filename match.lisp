@@ -56,7 +56,7 @@
                          (push (h-app head pat input) statements))))
                  (:lit (push (h-app "#assert" pat input) statements))
                  ((head . args)
-                  (let ((type (pattern-type pat)))
+                  (let ((type (car (lookup-word head :pattern :type))))
                     (unless (= (count-forms type) 1)
                       (push (h-app "#assert" (h-lit (type-form-disc type pat))
                                    (h-app "#fld" input (h-lit 0))) statements))
@@ -116,10 +116,6 @@
 
 (defstruct opt type disc n-args)
 
-(defun pattern-type (pat)
-  (evcase (resolve (gethash pat (context-pat-types *context*)))
-    ((inst type) type)))
-
 (defun sort-branches (branches val)
   (let (sorted default)
     (labels ((extend-default (br n)
@@ -152,14 +148,14 @@
                          (push (cons opt (cons br defs)) sorted)))))))
       (loop :for br :in branches :for pat := (car (br-pats br)) :do
          (match pat
-           (:lit (add-opt (pattern-type pat) (h-lit-val pat) br))
+           (:lit (add-opt (type-of-lit pat) (h-lit-val pat) br))
            ((:word nm)
             (if (is-const nm)
-                (let ((tp (pattern-type pat)))
+                (let ((tp (car (lookup-word pat :pattern :type))))
                   (add-opt tp (type-form-disc tp pat) br))
                 (add-default br (unless (equal nm "_") val))))
-           (((:word nm) . args)
-            (let ((tp (pattern-type pat)))
+           (((:as :word nm) . args)
+            (let ((tp (car (lookup-word nm :pattern :type))))
               (add-opt tp (type-form-disc tp pat) br args)))))
       (values (loop :for (opt . brs) :in sorted :collect (cons opt (nreverse brs)))
               (nreverse default)))))

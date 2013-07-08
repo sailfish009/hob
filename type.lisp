@@ -299,16 +299,14 @@
        (vcase found
          ((tclose cx type) (instantiate type (instance cx)))
          ((tmono type) type))))
-    (:lit (type-of-lit expr))))
+    (:lit (inst (type-of-lit expr) ()))))
 
 (defun typecheck-pat (pat &optional close mut)
-  (let ((type (typecheck-pat* pat close mut)))
-    (when *context* (setf (gethash pat (context-pat-types *context*)) type))
-    type))
+  (typecheck-pat* pat close mut))
 
 (defun typecheck-pat* (pat close mut)
   (match pat
-    (:lit (type-of-lit pat))
+    (:lit (inst (type-of-lit pat) ()))
     (("#guard" test pat)
      (prog1 (typecheck-pat pat close mut)
        (unify test (typecheck test) (inst *bool* ()))))
@@ -339,10 +337,10 @@
 
 (defun type-of-lit (expr)
   (etypecase (h-lit-val expr)
-    (integer (inst *int* ()))
-    (number (inst *float* ()))
-    (character (inst *char* ()))
-    (string (inst *string* ()))))
+    (integer *int*)
+    (number *float*)
+    (character *char*)
+    (string *string*)))
 
 (defun resolve (ty)
   (vcase ty

@@ -17,22 +17,20 @@
   val)
 
 (defun test-compile (file &optional name noisy)
-  (with-context ()
-    (let ((ast (print-if :expand noisy
-                         (expand-value
-                          (print-if :parse noisy (parse file name)) (scope *top*)))))
-      (print-if :type noisy (typecheck ast))
-      (setf ast (print-if :match noisy (expand-matches ast)))
-      (verify-use-order ast)
-      (hcompile ast))))
+  (let ((ast (print-if :expand noisy
+                       (expand-value
+                        (print-if :parse noisy (parse file name)) (scope *top*)))))
+    (print-if :type noisy (typecheck ast))
+    (setf ast (print-if :match noisy (expand-matches ast)))
+    (verify-use-order ast)
+    (hcompile ast)))
 
 (defun run-test (file &optional noisy)
-  (with-context ()
-    (when (stringp file)
-      (setf file (merge-pathnames (concatenate 'string "test/" file ".hob") *path*)))
-    (with-open-file (in file :element-type '(unsigned-byte 8))
-      (let* ((expr (print-if :compile noisy (test-compile in (pathname-name file) noisy))))
-        (print-if :result noisy (funcall (compile-s-expr expr)))))))
+  (when (stringp file)
+    (setf file (merge-pathnames (concatenate 'string "test/" file ".hob") *path*)))
+  (with-open-file (in file :element-type '(unsigned-byte 8))
+    (let* ((expr (print-if :compile noisy (test-compile in (pathname-name file) noisy))))
+      (print-if :result noisy (funcall (compile-s-expr expr))))))
 
 (defun run-test* (file)
   (let ((expect (return-spec file))
