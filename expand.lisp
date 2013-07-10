@@ -33,7 +33,11 @@
                                :when (eq elt :outer) :do (return b)
                                :collect elt :into b :finally (return b))))
              (t (syntax-error (h-app-head ,form) "Bad arguments to ~a" ,name))))))))
-          
+
+(defun maybe-add-env (word env)
+  (if (h-word-env word)
+      (copy-h-word word)
+      (ann-word word :env env)))
 
 (defun test-cases (cases)
   (let (n-args)
@@ -51,6 +55,14 @@
                (setf n-args len))))
         (t (syntax-error case "expected arrow application"))))
     n-args))
+
+(defun as-binding (word env ns &optional is-const)
+  (get-binding env ns (h-word-name word))
+  (when (is-meta word) (syntax-error word "binding a meta word"))
+  (if is-const
+      (when (is-variable word) (syntax-error word "using variable name for constant"))
+      (unless (is-variable word) (syntax-error word "using constant name for variable")))
+  (ann-word word :env env))
 
 (define-special-form "#def" (env)
   ((pat value)
@@ -85,91 +97,69 @@
 (define-special-form "#fn" (env)
   ((req-args opt-args rest-arg body)
    (let ((inner (scope env)))
-     (doseq (req req-args)
-       (unless (is-variable req)
-         (syntax-error req "invalid binding in argument list"))
-       (as-binding req inner :value))
-     (if (is-variable rest-arg)
-         (as-binding rest-arg inner :value)
-         (unless (and (h-seq-p rest-arg) (not (h-seq-vals rest-arg)))
-           (syntax-error rest-arg "&rest arguments must be either a word or []")))
-     (h-app "#fn" req-args (mapseq (opt opt-args)
-                             (match opt
-                               (("=" (:as :word v) def)
-                                (h-app "=" (as-binding v inner :value) (expand-value def env)))
-                               (t (syntax-error opt "&opt arguments must be `(= word default)` forms"))))
-            rest-arg
-            (expand-value body inner)))))
-
-(defun as-binding (word env ns &optional is-const)
-  (get-binding env ns (h-word-name word))
-  (setf (h-word-env word) env)
-  (when (is-meta word) (syntax-error word "binding a meta word"))
-  (if is-const
-      (when (is-variable word) (syntax-error word "using variable name for constant"))
-      (unless (is-variable word) (syntax-error word "using constant name for variable")))
-  word)
+     (h-app
+      "#fn"
+      (mapseq (req req-args)
+        (unless (is-variable req)
+          (syntax-error req "invalid binding in argument list"))
+        (as-binding req inner :value))
+      (mapseq (opt opt-args)
+        (match opt
+          (("=" (:as :word v) def)
+           (h-app "=" (as-binding v inner :value) (expand-value def env)))
+          (t (syntax-error opt "&opt arguments must be `(= word default)` forms"))))
+      (cond ((is-variable rest-arg) (as-binding rest-arg inner :value))
+            ((and (h-seq-p rest-arg) (not (h-seq-vals rest-arg))) (copy-h-seq rest-arg))
+            (t (syntax-error rest-arg "&rest arguments must be either a word or []")))
+      (expand-value body inner)))))
 
 (define-special-form "#data" (env form)
   ((name variants)
-   (match name
-     (:word)
-     (((:word _) . params)
-      (setf env (scope env))
-      (dolist (param params)
-        (unless (h-word-p param)
-          (syntax-error param "type parameters must be words"))
-        (as-binding param env :type)))
-     (t (syntax-error name "invalid name form in data declaration")))
-   (h-app "#data" name
-          (mapseq (variant variants)
-            (match variant
-              (:word variant)
-              (((:as :word name) . args)
-               (h-app* name (loop :for arg :in args :collect
-                               (expand-type arg env)))))))
+   form
    :outer
-   (match name
-     (:word (as-binding name env :type))
-     (((:as :word name) . _) (as-binding name env :type))
-     (t))
-   (doseq (variant variants)
-     (multiple-value-bind (name args)
-         (match variant ((name . args) (values name args)) (t variant))
-       (unless (h-word-p name)
-         (syntax-error name "variant names must be words"))
-       (as-binding name env :value (not args))
-       (as-binding name env :pattern (not args))))
-   form))
+   (let ((inner env))
+     (h-app
+      "#data"
+      (match name
+        (:word (as-binding name env :type))
+        (((:as :word name) . args)
+         (setf inner (scope env))
+         (h-app* (as-binding name env :type) (loop :for arg :in args :collect (as-binding arg inner :type))))
+        (t (syntax-error name "invalid name form in data declaration")))
+      (mapseq (variant variants)
+        (match variant
+          (:word (as-binding (as-binding variant env :value t) env :pattern t))
+          (((:as :word name) . args)
+           (h-app* (as-binding (as-binding name env :value) env :pattern)
+                   (loop :for arg :in args :collect (expand-type arg inner))))
+          (t (syntax-error variant "invalid variant form"))))))))
 
 (define-special-form "#class" (env form)
   ((name vars body)
-   (let ((inner (scope env)))
-     (doseq (v vars)
-       (unless (h-word-p v)
-         (syntax-error v "class instance types must be words"))
-       (as-binding v inner :type))
-     (h-app "#class" name vars
-            (mapseq (form body)
-              (match form
-                ((h name type) (h-app h name (expand-type type inner)))))))
+   form
    :outer
-   (doseq (form body)
-     (match form
-       (("type" (:as :word name) type)
-        (as-binding name env :value))
-       (t (syntax-error form "only `type` forms may appear in a class body"))))
-   (as-binding name env :class)
-   form))
+   (let ((inner (scope env)))
+     (h-app
+      "#class"
+      (as-binding name env :class)
+      (mapseq (v vars) (as-binding v inner :type))
+      (mapseq (form body)
+        (match form
+          (("type" (:as :word name) type)
+           (h-app (h-app-head form) (as-binding name env :value)
+                  (expand-type type inner)))
+          (t (syntax-error form "only `type` forms may appear in a class body"))))))))
 
 (define-special-form "#instance" (env form)
   ((bounds (:as :word class) types body)
-   (h-app "#instance" (mapseq (bound bounds) (expand-bound bound env))
-          class
+   (h-app "#instance"
+          (mapseq (bound bounds) (expand-bound bound env))
+          (copy-h-word class)
           (mapseq (type types) (expand-type type env))
           (mapseq (form body)
             (match form
-              (("def" (:as :word name) val) (h-app "def" name (expand-value val env))))))))
+              (("def" (:as :word name) val) (h-app "def" (copy-h-word name) (expand-value val env)))
+              (t (syntax-error form "only `def` forms may appear in an instance")))))))
 
 ;; Value expansion
 
@@ -191,8 +181,8 @@
        (if can-expand
            (expand-value (funcall can-expand expr) env)
            (expand-value-seq elts env))))
-    (:word (unless (h-word-env expr) (setf (h-word-env expr) env)) expr)
-    (:_ expr)))
+    (:word (maybe-add-env expr env))
+    (:lit (copy-h-lit expr))))
 
 (defun expand-value-outer (expr env)
   (loop :do
@@ -217,11 +207,12 @@
 
 (defun reg-binding (expr env &optional (check t))
   (let ((name (h-word-name expr)))
-    (unless (string= name "_")
-      (when (and check (find-binding env :value name))
-        (syntax-error expr "binding ~a multiple times" name))
-      (as-binding expr env :value)))
-  expr)
+    (if (string= name "_")
+        (copy-h-word expr)
+        (progn
+          (when (and check (find-binding env :value name))
+            (syntax-error expr "binding ~a multiple times" name))
+          (as-binding expr env :value)))))
 
 (defun expand-pattern (expr outer-env inner-env)
   (match expr
@@ -229,11 +220,10 @@
      (if (is-variable expr)
          (reg-binding expr inner-env)
          (expand-value expr outer-env)))
-    (:lit expr)
+    (:lit (copy-h-lit expr))
     ;; FIXME pattern macros
     (((:as :word head) . args)
-     (setf (h-word-env head) outer-env)
-     (h-app* head (loop :for arg :in args :collect (expand-pattern arg outer-env inner-env))))
+     (h-app* (ann-word head :env outer-env) (loop :for arg :in args :collect (expand-pattern arg outer-env inner-env))))
     (:_ (syntax-error expr "invalid pattern"))))
 
 (defun expand-patterns (expr outer-env inner-env)
@@ -263,9 +253,7 @@
 (defun expand-type (expr env)
   (labels ((expand (expr)
              (match expr
-               (:word
-                (unless (h-word-env expr) (setf (h-word-env expr) env))
-                expr)
+               (:word (maybe-add-env expr env))
                (:lit (syntax-error expr "found literal in type position"))
                (:seq (syntax-error expr "found sequence in type position"))
                (("#fn" req opt rest ret)

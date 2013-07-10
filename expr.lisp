@@ -15,7 +15,9 @@
             :end-line (pos-end-line end)
             :end-col (pos-end-col end)))
 
-(defstruct h-expr pos) ;; FIXME save proper position info
+(defstruct h-expr pos ann)
+(defun expr-ann (expr type)
+  (cdr (assoc type (h-expr-ann expr))))
 
 (defstruct (h-lit (:include h-expr) (:constructor h-lit (val &optional pos))) val)
 
@@ -39,10 +41,14 @@
 (defun h-app (head &rest args)
   (h-app* head args))
 
-(defstruct (h-word (:include h-expr) (:constructor mk-h-word (name pos env))) name env)
+(defstruct (h-word (:include h-expr) (:constructor mk-h-word (name pos ann))) name)
 (defun h-word (name &optional pos env)
   (assert (stringp name))
-  (mk-h-word name pos env))
+  (mk-h-word name pos (and env (list (cons :env env)))))
+(defun h-word-env (word) (expr-ann word :env))
+(defun ann-word (word type val)
+  (mk-h-word (h-word-name word) (h-expr-pos word)
+             (if val (cons (cons type val) (h-expr-ann word)) (h-expr-ann word))))
 
 (defun expr-start-pos (expr)
   (or (h-expr-pos expr)
