@@ -24,8 +24,8 @@
 
 (define-macro :value "if"
   ((test then else) (h-app "#match" test
-                           (h-seq (list (h-app "->" (h-sym "$true" *top*) then)
-                                        (h-app "->" (h-sym "$false" *top*) else)))))
+                           (h-seq (list (h-app "->" (h-word "$true") then)
+                                        (h-app "->" (h-word "$false") else)))))
   ((test then) (h-app "if" test then (h-word "()" (expr-end-pos then))))
   ((test then "else" else) (h-app "if" test then else)))
 

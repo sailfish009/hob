@@ -42,7 +42,7 @@
   (unless scope (setf scope (scope nil)))
   (let ((name (string-downcase (symbol-name (gensym name)))))
     (get-binding scope :value name)
-    (h-sym name scope)))
+    (h-word name nil scope)))
 
 (defun expand-destructuring-bind (head pat val)
   (let ((scope (scope nil))
@@ -87,8 +87,8 @@
                          (when guard
                            (setf body
                              (h-app "#match" (h-app "#fld" guard (h-lit 0))
-                                    (h-seq (list (h-app "->" (h-lit 1) (h-app (h-sym "some" *top*) body))
-                                                 (h-app "->" (h-lit 2) (h-sym "$none" *top*)))))))
+                                    (h-seq (list (h-app "->" (h-lit 1) (h-app (h-word "some" nil *top*) body))
+                                                 (h-app "->" (h-lit 2) (h-word "$none" nil *top*)))))))
                          (push (h-app "#def" name (h-app "#fn" (flatten-patterns pats) (h-nil) (h-nil) body)) defs)
                          (make-br :pats (seq-list pats) :guard (and guard t) :bound () :body name)))))
          (val-vars (lmapseq (val vals)
@@ -98,7 +98,7 @@
                            (push (h-app "#def" name val) defs)
                            name))))
          (fallthrough (make-br :pats (loop :repeat n-pats :collect (h-word "_")) :guard nil :bound ()
-                               :body (h-app "#assert" (h-sym "()" *top*))))) ;; FIXME () vs h-nil?
+                               :body (h-app "#assert" (h-word "()" nil *top*)))))
     (setf (cdr (last branches)) (list fallthrough))
     (push (expand-cases val-vars branches) defs)
     (h-seq (nreverse defs))))
@@ -168,7 +168,7 @@
 (defun expand-cases (inputs branches)
   (let ((first (car branches)))
     (unless (br-pats first)
-      (let* ((args (or (reverse (br-bound first)) (list (h-sym "()" *top*)))) ;; FIXME () vs h-nil
+      (let* ((args (or (reverse (br-bound first)) (list (h-word "()" nil *top*))))
              (body (h-app* (br-body first) args)))
         (when (br-guard first)
           (let ((sym (h-gensym "val")))
