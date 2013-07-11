@@ -18,6 +18,8 @@
 (defstruct h-expr pos ann)
 (defun expr-ann (expr type)
   (cdr (assoc type (h-expr-ann expr))))
+(defun add-expr-ann (expr type val)
+  (push (cons type val) (h-expr-ann expr)))
 
 (defstruct (h-lit (:include h-expr) (:constructor h-lit (val &optional pos))) val)
 

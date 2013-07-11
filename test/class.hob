@@ -1,0 +1,13 @@
+# -> 6
+
+class (Foo a):
+  type getFoo: a -> Int
+
+instance (Foo Int):
+  def getFoo: a -> a
+
+instance (Foo Bool):
+  def getFoo: $true -> 1
+              $false -> 0
+
+(getFoo $true) + (getFoo 5)

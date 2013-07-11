@@ -223,7 +223,9 @@
                                        name cls-name))
         (unify value (typecheck value) (instantiate (tclose-type (cdr (nth offset (cls-fields cls)))) inst))))
     ;; FIXME check for conflicts/double definitions
-    (push (cls-inst cls types fields) (cls-instances cls))))
+    (let ((cls-inst (cls-inst cls types fields)))
+      (push cls-inst (cls-instances cls))
+      (add-expr-ann cls-name :cls-instance cls-inst))))
 
 (defun typecheck-seq (exprs)
   (with-cx cx
@@ -326,7 +328,7 @@
        (vcase found
          ((tclose cx type)
           (let ((inst (instance cx)))
-            (push (cons :instance inst) (h-expr-ann expr))
+            (add-expr-ann expr :instance inst)
             (instantiate type inst)))
          ((tmono type) type))))
     (:lit (inst (type-of-lit expr) ()))))
@@ -496,8 +498,8 @@
     (:word (let* ((inst (expr-ann expr :instance))
                   (bounds (and inst (inst-bounds inst))))
              (when bounds
-               (push (cons :cls-instances (mapcar (lambda (b) (resolve-bound expr b inst)) bounds))
-                     (h-expr-ann expr)))))))
+               (add-expr-ann expr :cls-instances
+                             (mapcar (lambda (b) (resolve-bound expr b inst)) bounds)))))))
 
 (defun inst-bounds (inst)
   (let ((bounds ()))
