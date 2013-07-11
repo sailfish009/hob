@@ -3,9 +3,9 @@
 (defun expand-matches (expr)
   (match expr
     (("#match" vals cases) (expand-match vals cases))
-    (((:or "#def" "#var") :word :_) (transform-expr expr #'expand-matches))
-    (((:as (:or "#def" "#var") head) pat val) (values (expand-destructuring-bind head pat val) t))
-    (t (transform-expr expr #'expand-matches))))
+    (((:or "#def" "#var") :word body) (setf (second (h-app-args expr)) (expand-matches body)) expr)
+    (((:as (:or "#def" "#var") head) pat val) (values (h-seq (expand-destructuring-bind head pat val)) t))
+    (t (update-expr expr #'expand-matches))))
 
 (defstruct br pats guard bound body)
 

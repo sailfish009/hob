@@ -12,7 +12,7 @@
 (define-condition test-failure (simple-error) ())
 
 (defun print-if (name noisy val)
-  (cond ((eq noisy t) (format t "~a ~a" name val))
+  (cond ((eq noisy t) (format t "~a ~a~%" name val))
         ((eq noisy name) (print val)))
   val)
 
@@ -21,6 +21,7 @@
                        (expand-value
                         (print-if :parse noisy (parse file name)) (scope *top*)))))
     (print-if :type noisy (typecheck ast))
+    (resolve-methods ast)
     (setf ast (print-if :match noisy (expand-matches ast)))
     (verify-use-order ast)
     (hcompile ast)))

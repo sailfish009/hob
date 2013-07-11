@@ -30,6 +30,8 @@
   (tmono type))
 
 (defstruct (bound (:constructor bound (class args))) class args)
+(defstruct (cls (:constructor cls (name vars fields))) name vars fields instances)
+(defstruct (cls-inst (:constructor cls-inst (cls types fields))) cls types fields)
 
 (defvar *type-cx* nil)
 (defmacro with-cx (v &body body)
@@ -204,6 +206,25 @@
                      (if (member (instance-cx inst) cx) (copy-list count) count))))))
     (ins type)))
 
+(defun add-cls-instance (cls cls-name types body)
+  (unless (= (seq-len types) (length (cls-vars cls)))
+    (hob-type-error cls-name "wrong number of instance types for class `~a`" cls-name))
+  (unless (= (seq-len body) (length (cls-fields cls)))
+    (hob-type-error body "wrong number of instance fields")) ;; FIXME default impls etc
+  (let* ((inst (instance (tclose-cx (cdar (cls-fields cls)))))
+         (types (loop :for type :in (seq-list types) :for var :in (cls-vars cls) :collect
+                   (let ((parsed (parse-type type)))
+                     (unify type (instantiate var inst) parsed)
+                     parsed)))
+         (fields (make-array (length (cls-fields cls)))))
+    (doseq (("def" name value) body)
+      (let ((offset (position (h-word-name name) (cls-fields cls) :test #'string= :key #'car)))
+        (unless offset (hob-type-error name "field `~a` does not exist in class `~a`"
+                                       name cls-name))
+        (unify value (typecheck value) (instantiate (tclose-type (cdr (nth offset (cls-fields cls)))) inst))))
+    ;; FIXME check for conflicts/double definitions
+    (push (cls-inst cls types fields) (cls-instances cls))))
+
 (defun typecheck-seq (exprs)
   (with-cx cx
   (let ((def-types ()))
@@ -216,16 +237,18 @@
            (bind-word name :type :type (data (h-word-name name) (length args) nil))))
         (("#class" name vars body)
          (with-cx cx
-           (let ((tvars ())
-                 (bound (bound name nil)))
-             (doseq (var vars)
-               (let ((v (mkvar)))
-                 (push bound (tvar-bounds v))
-                 (bind-word var :type :type (tparam v))
-                 (push v tvars)))
-             (setf (bound-args bound) (nreverse tvars))
-             (doseq (("type" name tp) body)
-               (bind-word name :value :type (tclose cx (parse-type tp)))))))
+           (let* ((tvars (lmapseq (var vars)
+                           (let ((v (mkvar)))
+                             (bind-word var :type :type (tparam v))
+                             v)))
+                  (cls (cls (h-word-name name) tvars
+                            (lmapseq (("type" name tp) body)
+                              (let ((tclose (tclose cx (parse-type tp))))
+                                (bind-word name :value :type tclose)
+                                (cons (h-word-name name) tclose)))))
+                  (bound (bound cls tvars)))
+             (bind-word name :class :class cls)
+             (dolist (var tvars) (push bound (tvar-bounds var))))))
         (("#def" pat :_) (push (typecheck-pat pat t) def-types))
         (("#var" pat :_) (push (typecheck-pat pat nil t) def-types))
         (t)))
@@ -259,6 +282,10 @@
     (dolist (expr exprs)
       (match expr
         (((:or "#class" "#def" "#var" "#data") . :_))
+        (("#instance" :_ name types body) ;; FIXME handle bounds
+         (add-cls-instance (or (lookup-word name :class :class)
+                               (hob-type-error name "undefined class name `~a`" name))
+                           name types body))
         (t (setf last (typecheck expr)))))
     last)))
 
@@ -297,14 +324,14 @@
        ;; FIXME different error type
        (unless found (hob-type-error expr "undefined variable `~a`" expr))
        (vcase found
-         ((tclose cx type) (instantiate type (instance cx)))
+         ((tclose cx type)
+          (let ((inst (instance cx)))
+            (push (cons :instance inst) (h-expr-ann expr))
+            (instantiate type inst)))
          ((tmono type) type))))
     (:lit (inst (type-of-lit expr) ()))))
 
 (defun typecheck-pat (pat &optional close mut)
-  (typecheck-pat* pat close mut))
-
-(defun typecheck-pat* (pat close mut)
   (match pat
     (:lit (inst (type-of-lit pat) ()))
     (("#guard" test pat)
@@ -436,7 +463,7 @@
                (setf type (resolve type))
                (evcase type
                  ((fun req-args opt-args rest-arg result)
-                  (format nil "(~{~a ~}~:[~;~:* &opt~{ ~a~}~]~:[~;~:*&rest ~a~] -> ~a)"
+                  (format nil "(~{~a ~}~:[~;~:*&opt~{~a ~}~]~:[~;~:*&rest ~a ~]-> ~a)"
                           (mapcar #'prnt req-args) (mapcar #'prnt opt-args)
                           (and rest-arg (prnt rest-arg)) (prnt result)))
                  ((inst type args)
@@ -461,3 +488,46 @@
            (loop :for a :in opt-args :when (occurs var a) :return t)
            (and rest-arg (occurs var rest-arg))
            (occurs var result))))))
+
+;; Method resolution
+
+(defun resolve-methods (expr)
+  (walk expr (expr)
+    (:word (let* ((inst (expr-ann expr :instance))
+                  (bounds (and inst (inst-bounds inst))))
+             (when bounds
+               (push (cons :cls-instances (mapcar (lambda (b) (resolve-bound expr b inst)) bounds))
+                     (h-expr-ann expr)))))))
+
+(defun inst-bounds (inst)
+  (let ((bounds ()))
+    (loop :for (var . tp) :in (instance-subst inst) :do
+       (dolist (bound (tvar-bounds var))
+         (pushnew bound bounds)))
+    bounds))
+  
+
+(defun resolve-bound (expr bound inst)
+  (let ((args (loop :for tp :in (bound-args bound) :collect (instantiate tp inst))))
+    (loop :for cls-inst :in (cls-instances (bound-class bound)) :do
+       (unless (loop :for b-arg :in args :for i-arg :in (cls-inst-types cls-inst) :do
+                  (unless (type-compatible b-arg i-arg) (return t)))
+         (return-from resolve-bound cls-inst)))
+    (hob-type-error expr "could not find an implementation of class `~a` for~{ ~a~}"
+                    (cls-name (bound-class bound)) (mapcar #'print-type args))))
+
+(defun type-compatible (t1 t2)
+  (setf t1 (resolve t1) t2 (resolve t2))
+  (if (typep t2 'tvar)
+      t
+      (evcase t1
+        ((fun count)
+         (vcase t2 ((fun (count2 count)) (= count2 count)) (t nil)))
+        ((inst type args)
+         (vcase t2
+           ((inst (type2 type) (args2 args))
+            (and (eq type type2)
+                 (not (loop :for arg :in args :for arg2 :in args2 :do
+                         (unless (type-compatible arg arg2) (return t))))))
+           (t nil)))
+        (tvar t))))

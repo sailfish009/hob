@@ -1,4 +1,4 @@
-# -> ! failed to unify types (Int Int  -> a) and (Int  -> a)
+# -> ! failed to unify types (Int Int -> a) and (Int -> a)
 
 def x: a &opt (b = 10) -> a + b
 

@@ -154,7 +154,7 @@
   ((bounds (:as :word class) types body)
    (h-app "#instance"
           (mapseq (bound bounds) (expand-bound bound env))
-          (copy-h-word class)
+          (maybe-add-env class env)
           (mapseq (type types) (expand-type type env))
           (mapseq (form body)
             (match form
@@ -262,12 +262,11 @@
                        (mapseq (arg opt) (expand arg))
                        (match rest (:nil rest) (t (expand rest)))
                        (expand ret)))
-               (((:as :word head) . :_)
+               (((:as :word head) . args)
                 (let ((mac (lookup env :type (h-word-name head) :macro)))
                   (if mac
                       (expand (funcall mac expr))
-                      (transform-expr expr #'expand))))
-               (t (transform-expr expr #'expand)))))
+                      (h-app* (expand head) (mapcar #'expand args))))))))
     (expand expr)))
 
 ;; Tester
