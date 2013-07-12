@@ -1,5 +1,7 @@
 (in-package :hob)
 
+;; FIXME various type walkers handle functions' optional args poorly
+
 (define-condition hob-type-error (hob-program-error) ())
 
 (define-raise-function hob-type-error)
@@ -29,7 +31,7 @@
   (tclose cx type)
   (tmono type))
 
-(defstruct (bound (:constructor bound (class args))) class args)
+(defstruct (bound (:constructor bound (class args))) class args res)
 (defstruct (cls (:constructor cls (name vars fields))) name vars fields instances)
 (defstruct (cls-inst (:constructor cls-inst (cls types sym))) cls types sym)
 
@@ -182,10 +184,15 @@
          (hob-type-error expr "incorrect number of parameters for type `~a`" head))
        (inst found (loop :for targ :in targs :collect (parse-type targ)))))))
 
-(defstruct (instance (:constructor instance (cx))) cx subst (instantiating 0))
+(defstruct (instance (:constructor instance (cx))) cx subst bounds (instantiating 0))
 
 (defun instantiate (type inst)
-  (labels ((ins (tp)
+  (labels ((ins-bound (b)
+             (or (cdr (assoc b (instance-bounds inst)))
+                 (let ((new-b (bound (bound-class b) (mapcar #'ins (bound-args b)))))
+                   (push (cons b new-b) (instance-bounds inst))
+                   new-b)))
+           (ins (tp)
              (setf tp (resolve tp))
              (vcase tp
                ((tvar cx)
@@ -194,9 +201,9 @@
                       (if found
                           (cdr found)
                           (let ((v (mkvar)))
-                            (setf (tvar-bounds v) (tvar-bounds tp))
                             (push (cons inst v) (tvar-instances tp))
                             (push (cons tp v) (instance-subst inst))
+                            (setf (tvar-bounds v) (mapcar #'ins-bound (tvar-bounds tp)))
                             v)))
                     tp))
                ((inst type args) (inst type (mapcar #'ins args)))
@@ -205,6 +212,19 @@
                      (and rest-arg (ins rest-arg)) (ins result) *type-cx*
                      (if (member (instance-cx inst) cx) (copy-list count) count))))))
     (ins type)))
+
+(defun walk-closed-vars (tclose f)
+  (let ((outer-cx (tclose-cx tclose)))
+    (labels ((walk (typ)
+               (setf typ (resolve typ))
+               (vcase typ
+                 ((tvar cx) (when (member outer-cx cx) (funcall f typ)))
+                 ((inst args) (dolist (arg args) (walk arg)))
+                 ((fun req-args result) (dolist (arg req-args) (walk arg)) (walk result)))))
+      (walk (tclose-type tclose)))))
+
+(defmacro do-closed-vars ((v tclose) &body body)
+  `(walk-closed-vars ,tclose (lambda (,v) ,@body)))
 
 (defun cls-field-pos (cls name)
   (position name (cls-fields cls) :test #'string= :key #'car))
@@ -495,46 +515,54 @@
 
 ;; Method resolution
 
-(defun resolve-methods (expr)
+(defun free-bounds (tclose)
+  (let ((found ()))
+    (do-closed-vars (var tclose)
+      (dolist (bound (tvar-bounds var))
+        (pushnew bound found)))
+    found))
+
+(defun resolve-bounds (expr)
   (walk expr (expr)
-    (:word (let* ((inst (expr-ann expr :instance))
-                  (bounds (and inst (inst-bounds inst))))
-             (when bounds
-               (add-expr-ann expr :cls-instances
-                             (mapcar (lambda (b) (resolve-bound expr b inst)) bounds)))))))
+    (("#def" pat val)
+     (do-pat-vars (var pat)
+       (loop :for bound :in (free-bounds (lookup-word var :value :type)) :for i :from 0 :do
+          (setf (bound-res bound) i)))
+     (resolve-bounds val))
+    (:word (let ((inst (expr-ann expr :instance)))
+             (loop :for (nil . inner) :in (and inst (instance-bounds inst)) :do
+                (resolve-bound expr inner))))))
 
-(defun inst-bounds (inst)
-  (let ((bounds ()))
-    (loop :for (var . tp) :in (instance-subst inst) :do
-       (dolist (bound (tvar-bounds var))
-         (pushnew bound bounds)))
-    bounds))
-  
-
-(defun resolve-bound (expr bound inst)
-  (let ((args (loop :for tp :in (bound-args bound) :collect (instantiate tp inst))))
-    (loop :for cls-inst :in (cls-instances (bound-class bound)) :do
-       (unless (loop :for b-arg :in args :for i-arg :in (cls-inst-types cls-inst) :do
-                  (unless (is-specialization-of b-arg i-arg) (return t)))
-         (return-from resolve-bound cls-inst)))
-    (hob-type-error expr "could not find an implementation of class `~a` for~{ ~a~}"
-                    (cls-name (bound-class bound)) (mapcar #'print-type args))))
+(defun resolve-bound (expr bound)
+  (when (bound-res bound)
+    (unless (integerp (bound-res bound)) (error "re-resolution of bound"))
+    (return-from resolve-bound))
+  (loop :for cls-inst :in (cls-instances (bound-class bound)) :do
+     (unless (loop :for b-arg :in (bound-args bound) :for i-arg :in (cls-inst-types cls-inst) :do
+                (unless (is-specialization-of b-arg i-arg) (return t)))
+       (setf (bound-res bound) cls-inst)
+       (return-from resolve-bound)))
+  (hob-type-error expr "could not find an implementation of class `~a` for~{ ~a~}"
+                  (cls-name (bound-class bound)) (mapcar #'print-type (bound-args bound))))
 
 (defun is-specialization-of (tp templ)
-  (setf tp (resolve tp) templ (resolve templ))
-  (evcase templ
-    ((fun req-args count)
-     (vcase tp
-       ((fun (req-args2 req-args) (count2 count))
-        (and (= count2 count)
-             (loop :for arg :in req-args :for arg2 :in req-args2 :do
-                (unless (is-specialization-of arg2 arg) (return t)))))
-       (t nil)))
-    ((inst type args)
-     (vcase tp
-       ((inst (type2 type) (args2 args))
-        (and (eq type type2)
-             (not (loop :for arg :in args :for arg2 :in args2 :do
-                     (unless (is-specialization-of arg2 arg) (return t))))))
-       (t nil)))
-    (tvar t)))
+  (labels ((inner (tp templ)
+             (setf tp (resolve tp) templ (resolve templ))
+             (when (typep tp 'tvar) (return-from is-specialization-of :maybe))
+             (evcase templ
+               ((fun req-args count)
+                (vcase tp
+                  ((fun (req-args2 req-args) (count2 count))
+                   (and (= count2 count)
+                        (not (loop :for arg :in req-args :for arg2 :in req-args2 :do
+                                (unless (inner arg2 arg) (return t))))))
+                  (t nil)))
+               ((inst type args)
+                (vcase tp
+                  ((inst (type2 type) (args2 args))
+                   (and (eq type type2)
+                        (not (loop :for arg :in args :for arg2 :in args2 :do
+                                (unless (inner arg2 arg) (return t))))))
+                  (t nil)))
+               (tvar t))))
+    (inner tp templ)))

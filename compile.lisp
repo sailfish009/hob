@@ -15,11 +15,14 @@
   (match expr
     (:lit (h-lit-val expr))
     (:word
-     (let ((insts (expr-ann expr :cls-instances))
+     (let ((instance (expr-ann expr :instance))
            (val (or (lookup-word expr :value :value)
                     (error "undefined variable ~a at compile time" expr))))
-       (if insts
-           `(funcall ,val ,@(loop :for inst :in insts :collect (cls-inst-sym inst)))
+       (if (and instance (instance-bounds instance))
+           `(funcall ,val ,@(loop :for (nil . bound) :in (instance-bounds instance) :collect
+                               (if (integerp (bound-res bound))
+                                   (intern (format nil "-bound-~a" (bound-res bound)) :hob.gen)
+                                   (cls-inst-sym (bound-res bound)))))
            val)))
     ((:seq exprs) (and exprs (hcompile-seq exprs)))
     (("#fn" req-args opt-args rest-arg body)
@@ -84,11 +87,24 @@
         (t)))
     (dolist (expr exprs)
       (match expr
-        (((:or "#def" "#var") name val)
+        (("#def" name val)
+         (let* ((type (lookup-word name :value :type))
+                (bounds (and type (free-bounds type)))
+                (expr (if bounds
+                          (let ((syms (loop :for i :below (length bounds) :collect
+                                         (intern (format nil "-bound-~a" i) :hob.gen))))
+                            `(lambda ,syms ,(hcompile val)))
+                          (hcompile val)))
+                (set `(setf ,(as-var name) ,expr)))
+           (when (equal (h-word-name name) "indirect") (defparameter *debug* type))
+           (if (is-fn val) (push set top) (push set body))))
+        (("#var" name val)
          (let ((set `(setf ,(as-var name) ,(hcompile val))))
-           (if (match val (("#fn" . :_) t) (t nil)) (push set top) (push set body))))
+           (if (is-fn val) (push set top) (push set body))))
         (((:or "#data" "#class" "#instance") . :_))
         (t (push (hcompile expr) body))))
     `(let (,@vars)
        ,@(nreverse top)
        ,@(nreverse body))))
+
+(defun is-fn (expr) (match expr (("#fn" . :_) t) (t nil)))

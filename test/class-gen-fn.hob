@@ -1,0 +1,16 @@
+# -> 6
+
+class (Foo a):
+  type getFoo: a -> Int
+
+instance (Foo Int):
+  def getFoo: a -> a
+
+instance (Foo Bool):
+  def getFoo: $true -> 1
+              $false -> 0
+
+def indirect: x -> getFoo x
+
+(indirect $true) + (indirect 5)
+

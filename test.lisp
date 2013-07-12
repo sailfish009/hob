@@ -21,7 +21,7 @@
                        (expand-value
                         (print-if :parse noisy (parse file name)) (scope *top*)))))
     (print-if :type noisy (typecheck ast))
-    (resolve-methods ast)
+    (resolve-bounds ast)
     (setf ast (print-if :match noisy (expand-matches ast)))
     (verify-use-order ast)
     (hcompile ast)))

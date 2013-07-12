@@ -26,11 +26,20 @@
 ;; Walk
 
 (defmacro walk (expr (var) &body cases)
-  `(walk* ,expr (lambda (,var) (match ,var ,@cases (t)))))
+  `(walk* ,expr (lambda (,var) (match ,var ,@cases (t :unhandled)))))
 
 (defun walk* (expr f)
-  (unless (eq (funcall f expr) :handled)
+  (when (eq (funcall f expr) :unhandled)
     (match expr
       ((:seq forms) (dolist (form forms) (walk* form f)))
       ((head . args) (walk* head f) (dolist (arg args) (walk* arg f)))
       (t))))
+
+(defun walk-pat-vars (pat f)
+  (match pat
+    (:word (when (is-variable pat) (funcall f pat)))
+    ((:_ . args) (dolist (arg args) (walk-pat-vars arg f)))
+    (:_)))
+
+(defmacro do-pat-vars ((v pat) &body body)
+  `(walk-pat-vars ,pat (lambda (,v) ,@body)))
