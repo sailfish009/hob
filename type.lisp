@@ -31,7 +31,7 @@
 
 (defstruct (bound (:constructor bound (class args))) class args)
 (defstruct (cls (:constructor cls (name vars fields))) name vars fields instances)
-(defstruct (cls-inst (:constructor cls-inst (cls types fields))) cls types fields)
+(defstruct (cls-inst (:constructor cls-inst (cls types sym))) cls types sym)
 
 (defvar *type-cx* nil)
 (defmacro with-cx (v &body body)
@@ -206,6 +206,9 @@
                      (if (member (instance-cx inst) cx) (copy-list count) count))))))
     (ins type)))
 
+(defun cls-field-pos (cls name)
+  (position name (cls-fields cls) :test #'string= :key #'car))
+
 (defun add-cls-instance (cls cls-name types body)
   (unless (= (seq-len types) (length (cls-vars cls)))
     (hob-type-error cls-name "wrong number of instance types for class `~a`" cls-name))
@@ -215,15 +218,14 @@
          (types (loop :for type :in (seq-list types) :for var :in (cls-vars cls) :collect
                    (let ((parsed (parse-type type)))
                      (unify type (instantiate var inst) parsed)
-                     parsed)))
-         (fields (make-array (length (cls-fields cls)))))
+                     parsed))))
     (doseq (("def" name value) body)
-      (let ((offset (position (h-word-name name) (cls-fields cls) :test #'string= :key #'car)))
+      (let ((offset (cls-field-pos cls (h-word-name name))))
         (unless offset (hob-type-error name "field `~a` does not exist in class `~a`"
                                        name cls-name))
         (unify value (typecheck value) (instantiate (tclose-type (cdr (nth offset (cls-fields cls)))) inst))))
     ;; FIXME check for conflicts/double definitions
-    (let ((cls-inst (cls-inst cls types fields)))
+    (let ((cls-inst (cls-inst cls types nil)))
       (push cls-inst (cls-instances cls))
       (add-expr-ann cls-name :cls-instance cls-inst))))
 
@@ -513,23 +515,26 @@
   (let ((args (loop :for tp :in (bound-args bound) :collect (instantiate tp inst))))
     (loop :for cls-inst :in (cls-instances (bound-class bound)) :do
        (unless (loop :for b-arg :in args :for i-arg :in (cls-inst-types cls-inst) :do
-                  (unless (type-compatible b-arg i-arg) (return t)))
+                  (unless (is-specialization-of b-arg i-arg) (return t)))
          (return-from resolve-bound cls-inst)))
     (hob-type-error expr "could not find an implementation of class `~a` for~{ ~a~}"
                     (cls-name (bound-class bound)) (mapcar #'print-type args))))
 
-(defun type-compatible (t1 t2)
-  (setf t1 (resolve t1) t2 (resolve t2))
-  (if (typep t2 'tvar)
-      t
-      (evcase t1
-        ((fun count)
-         (vcase t2 ((fun (count2 count)) (= count2 count)) (t nil)))
-        ((inst type args)
-         (vcase t2
-           ((inst (type2 type) (args2 args))
-            (and (eq type type2)
-                 (not (loop :for arg :in args :for arg2 :in args2 :do
-                         (unless (type-compatible arg arg2) (return t))))))
-           (t nil)))
-        (tvar t))))
+(defun is-specialization-of (tp templ)
+  (setf tp (resolve tp) templ (resolve templ))
+  (evcase templ
+    ((fun req-args count)
+     (vcase tp
+       ((fun (req-args2 req-args) (count2 count))
+        (and (= count2 count)
+             (loop :for arg :in req-args :for arg2 :in req-args2 :do
+                (unless (is-specialization-of arg2 arg) (return t)))))
+       (t nil)))
+    ((inst type args)
+     (vcase tp
+       ((inst (type2 type) (args2 args))
+        (and (eq type type2)
+             (not (loop :for arg :in args :for arg2 :in args2 :do
+                     (unless (is-specialization-of arg2 arg) (return t))))))
+       (t nil)))
+    (tvar t)))
