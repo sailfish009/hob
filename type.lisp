@@ -482,7 +482,9 @@
   (append b1 b2)) ;; FIXME
 
 (defun print-type (type)
-  (let ((seen ()) (next (char-code #\a)))
+  (let ((seen ())
+        (next (char-code #\a))
+        (bounds))
     (labels ((prnt (type)
                (setf type (resolve type))
                (evcase type
@@ -497,10 +499,17 @@
                   (or (cdr (assoc type seen))
                       (let* ((n (code-char next))
                              (s (string n)))
+                        (dolist (bound (tvar-bounds type)) (pushnew bound bounds))
                         (incf next)
                         (push (cons type s) seen)
-                        s))))))
-      (prnt type))))
+                        s)))))
+             (prnt-bound (bound)
+               (format nil "(~a~{ ~a~})" (cls-name (bound-class bound))
+                       (mapcar #'prnt (bound-args bound)))))
+      (let ((main (prnt type)))
+        (if bounds
+            (format nil "~{~a ~} :> ~a" (mapcar #'prnt-bound bounds) main)
+            main)))))
 
 (defun occurs (var tp)
   (let ((tp (resolve tp)))

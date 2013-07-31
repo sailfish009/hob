@@ -20,7 +20,7 @@
   (let ((ast (print-if :expand noisy
                        (expand-value
                         (print-if :parse noisy (parse file name)) (scope *top*)))))
-    (print-if :type noisy (typecheck ast))
+    (print-if :type noisy (print-type (typecheck ast)))
     (resolve-bounds ast)
     (setf ast (print-if :match noisy (expand-matches ast)))
     (verify-use-order ast)
